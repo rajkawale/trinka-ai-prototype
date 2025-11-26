@@ -1,0 +1,78 @@
+import { useState, useRef } from 'react'
+import { cn } from '../lib/utils'
+import RecommendationDetailPopover from './RecommendationDetailPopover'
+import type { Recommendation } from './RecommendationCard'
+
+interface DocumentHealthTopSuggestionRowProps {
+    suggestion: {
+        id: string
+        title: string
+        summary: string
+        fullText: string
+        actionType: Recommendation['actionType']
+        estimatedImpact: Recommendation['estimatedImpact']
+    }
+    docId: string
+    onApply?: (suggestionId: string) => void
+    onDismiss?: (suggestionId: string) => void
+}
+
+const DocumentHealthTopSuggestionRow = ({
+    suggestion,
+    docId,
+    onApply,
+    onDismiss
+}: DocumentHealthTopSuggestionRowProps) => {
+    const [showPopover, setShowPopover] = useState(false)
+    const rowRef = useRef<HTMLButtonElement>(null)
+
+    const handleClick = () => {
+        setShowPopover(true)
+        
+        // Emit telemetry
+        if (typeof window !== 'undefined' && (window as any).analytics) {
+            (window as any).analytics.track('topSuggestion.click', {
+                docId,
+                suggestionId: suggestion.id
+            })
+        }
+    }
+
+    const recommendation: Recommendation = {
+        id: suggestion.id,
+        title: suggestion.title,
+        summary: suggestion.summary,
+        fullText: suggestion.fullText,
+        actionType: suggestion.actionType,
+        estimatedImpact: suggestion.estimatedImpact
+    }
+
+    return (
+        <>
+            <button
+                ref={rowRef}
+                onClick={handleClick}
+                className={cn(
+                    "w-full text-left px-2 py-1 text-[12px] text-gray-700 hover:bg-gray-50 rounded transition-colors",
+                    "focus:outline-none focus:ring-2 focus:ring-[#6B46FF]/20 min-h-[44px] flex items-center"
+                )}
+                aria-label={`${suggestion.title}. Open details`}
+            >
+                <span className="flex-1">{suggestion.title}</span>
+            </button>
+            {showPopover && rowRef.current && (
+                <RecommendationDetailPopover
+                    recommendation={recommendation}
+                    docId={docId}
+                    anchorElement={rowRef.current}
+                    onClose={() => setShowPopover(false)}
+                    onApply={onApply}
+                    onDismiss={onDismiss}
+                />
+            )}
+        </>
+    )
+}
+
+export default DocumentHealthTopSuggestionRow
+
