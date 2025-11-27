@@ -527,87 +527,61 @@ const Editor = () => {
             return
         }
 
-        // For Smart Edit, we use the Recommendation flow instead of PreviewState
-        if (action.mode === 'smart') {
-            const id = `smart-${Date.now()}`
-            const recommendation: Recommendation = {
-                id,
-                title: 'Smart Edit',
-                summary: 'Generating...', // Will be updated after fetch
-                fullText: 'Preserving entities and numbers while improving flow.',
-                originalText: selected,
-                actionType: 'rewrite',
-                estimatedImpact: 'high',
-                range: { from, to }
-            }
-
-            // Open popover immediately with loading state
-            const range = document.createRange()
-            const selection = window.getSelection()
-            if (selection && selection.rangeCount > 0) {
-                range.setStart(selection.getRangeAt(0).startContainer, selection.getRangeAt(0).startOffset)
-                range.setEnd(selection.getRangeAt(0).endContainer, selection.getRangeAt(0).endOffset)
-            }
-
-            openPopover(range, (
-                <RecommendationDetailPopover
-                    recommendation={recommendation}
-                    docId="current-doc"
-                    onClose={closePopover}
-                    onShowToast={showToast}
-                    onApply={() => {
-                        // This will be handled by the popover's internal state after generation
-                        closePopover()
-                    }}
-                />
-            ), {
-                placement: 'bottom',
-                offset: 8,
-                isInteractive: true
-            })
-
-            return
-        }
-
-        const previewId = createRequestId()
-        setPreview({
-            id: previewId,
-            label: action.label,
-            intent: action.mode,
-            status: 'loading',
-            original: selected,
-            suggestion: '',
+        // Create recommendation object
+        const id = `rec-${Date.now()}`
+        const recommendation: Recommendation = {
+            id,
+            title: action.label,
+            summary: 'Generating...',
+            fullText: 'Generating...',
+            originalText: selected,
+            actionType: action.mode as ActionType,
+            estimatedImpact: 'medium',
             range: { from, to }
-        })
-
-        try {
-            const response = await fetch(trinkaApi('/rewrite'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    text: selected,
-                    tone: action.tone,
-                    mode: action.mode
-                })
-            })
-            const data = await response.json()
-            const suggestion = data?.rewritten_text ?? selected
-
-            // Highlight changed tokens (simple diff simulation)
-            const changedTokens: { from: number; to: number }[] = []
-            // In real implementation, use a proper diff algorithm
-
-            setPreview(current => current && current.id === previewId ? {
-                ...current,
-                suggestion,
-                status: suggestion ? 'ready' : 'error',
-                changedTokens
-            } : current)
-        } catch (error) {
-            console.error('Rewrite failed:', error)
-            setPreview(current => current && current.id === previewId ? { ...current, status: 'error' } : current)
-            showToast('Copilot could not complete that request. Please retry.')
         }
+
+        // Open popover immediately
+        const range = document.createRange()
+        const selection = window.getSelection()
+        if (selection && selection.rangeCount > 0) {
+            range.setStart(selection.getRangeAt(0).startContainer, selection.getRangeAt(0).startOffset)
+            range.setEnd(selection.getRangeAt(0).endContainer, selection.getRangeAt(0).endOffset)
+        }
+
+        openPopover(range, (
+            <RecommendationDetailPopover
+                recommendation={recommendation}
+                docId="current-doc"
+                onClose={closePopover}
+                onShowToast={showToast}
+                onApply={(text) => {
+                    // Transactional apply
+                    editor.chain()
+                        .focus()
+                        .insertContentAt({ from, to }, text)
+                        .run()
+
+                    // Update state
+                    setRevisionCount(prev => prev + 1)
+
+                    // Log
+                    console.debug('trinka:suggestion_apply', {
+                        id: recommendation.id,
+                        action: action.mode,
+                        suggestion: text
+                    })
+
+                    showToast('Suggestion applied')
+
+                    // Create snapshot
+                    createSnapshot(action.label, text)
+                }}
+            />
+        ), {
+            placement: 'bottom',
+            offset: 8,
+            isInteractive: true
+        })
     }
 
     const applySuggestion = () => {
@@ -1183,12 +1157,10 @@ const Editor = () => {
                             }}
                         >
                             <div
-                                className="flex items-center gap-1 bg-white/90 backdrop-blur-lg shadow-lg border border-gray-200/50 rounded-full px-2 py-1 overflow-x-auto scrollbar-hide animate-in fade-in slide-in-from-bottom-2"
+                                className="flex items-center gap-1 bg-white/90 backdrop-blur-lg shadow-lg border border-gray-200/50 rounded-full px-2 py-1 overflow-visible animate-in fade-in slide-in-from-bottom-2"
                                 style={{
                                     minHeight: '36px',
-                                    maxWidth: '90vw',
-                                    scrollbarWidth: 'none',
-                                    msOverflowStyle: 'none'
+                                    whiteSpace: 'nowrap'
                                 }}
                             >
                                 <button
