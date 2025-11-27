@@ -19,7 +19,6 @@ import {
     Italic,
     List,
     ListOrdered,
-    LayoutTemplate,
     Check,
     Sparkles,
     History,
@@ -1464,6 +1463,27 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
                                 </button>
                             </div>
                         </div>
+                    </div>
+                )
+            }
+
+            {/* Toast with Undo - P0 Spec */}
+            {
+                toast && (
+                    <div className="fixed bottom-6 left-6 bg-gray-900 text-white text-[13px] px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-3 z-40 animate-in fade-in slide-in-from-bottom-2">
+                        <span>{toast.message}</span>
+                        {toast.undo && (
+                            <button
+                                onClick={() => {
+                                    toast.undo?.()
+                                    setToast(null)
+                                }}
+                                className="text-[#6B46FF] hover:text-[#6B46FF]/80 font-medium flex items-center gap-1"
+                            >
+                                <Undo2 className="w-3.5 h-3.5" />
+                                Undo
+                            </button>
+                        )}
                     </div>
                 )
             }
