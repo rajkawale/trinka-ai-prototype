@@ -365,7 +365,8 @@ const Editor = () => {
                 fullText: suggestion,
                 originalText: original,
                 actionType: type === 'grammar' ? 'rewrite' : (type === 'tone' ? 'tone' : 'rewrite') as ActionType,
-                estimatedImpact: 'medium'
+                estimatedImpact: 'medium',
+                range: { from, to }
             })
         }
 
@@ -419,7 +420,27 @@ const Editor = () => {
                     estimatedImpact: 'medium'
                 }
 
-                openPopover(target, (
+                // Create a range for precise anchoring
+                const range = document.createRange()
+                const selection = window.getSelection()
+                if (selection && selection.rangeCount > 0) {
+                    // Prefer actual selection if available and matches target
+                    if (selection.anchorNode && target.contains(selection.anchorNode)) {
+                        const selRange = selection.getRangeAt(0)
+                        if (selRange.toString().trim().length > 0) {
+                            range.setStart(selRange.startContainer, selRange.startOffset)
+                            range.setEnd(selRange.endContainer, selRange.endOffset)
+                        } else {
+                            range.selectNodeContents(target)
+                        }
+                    } else {
+                        range.selectNodeContents(target)
+                    }
+                } else {
+                    range.selectNodeContents(target)
+                }
+
+                openPopover(range, (
                     <RecommendationDetailPopover
                         recommendation={recommendation}
                         docId="current-doc"
@@ -439,7 +460,7 @@ const Editor = () => {
                     />
                 ), {
                     placement: 'bottom',
-                    offset: 5,
+                    offset: 8,
                     isInteractive: true
                 })
                 console.debug('trinka:popover-opened-click')
@@ -1365,36 +1386,28 @@ const Editor = () => {
                 suggestions={topSuggestions}
                 docId="current-doc"
                 onApply={async (id) => {
-                    try {
-                        const response = await fetch(trinkaApi('/api/recommendations/apply'), {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                userId: 'current-user',
-                                docId: 'current-doc',
-                                recommendationId: id
-                            })
+                    const suggestion = topSuggestions.find(s => s.id === id)
+                    if (suggestion && suggestion.range && suggestion.summary) {
+                        // Transactional apply
+                        editor.chain()
+                            .focus()
+                            .setTextSelection({ from: suggestion.range.from, to: suggestion.range.to })
+                            .insertContent(suggestion.summary)
+                            .run()
+
+                        console.debug('trinka:suggestion_apply', {
+                            id: suggestion.id,
+                            original: suggestion.originalText,
+                            replacedWith: suggestion.summary
                         })
-                        if (response.ok) {
-                            const data = await response.json()
-                            const suggestion = topSuggestions.find(s => s.id === id)
-                            if (suggestion) {
-                                showToast(`Applied: ${suggestion.title}. Undo`, async () => {
-                                    await fetch(trinkaApi('/api/recommendations/undo'), {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({
-                                            userId: 'current-user',
-                                            docId: 'current-doc',
-                                            undoToken: data.undoToken
-                                        })
-                                    })
-                                })
-                            }
-                            setTopSuggestions(prev => prev.filter(s => s.id !== id))
-                        }
-                    } catch (error) {
-                        console.error('Apply failed:', error)
+
+                        showToast(`Applied: ${suggestion.title}`)
+                        setTopSuggestions(prev => prev.filter(s => s.id !== id))
+
+                        // Update word count immediately
+                        const plainText = editor.state.doc.textBetween(0, editor.state.doc.content.size, ' ')
+                        const words = plainText.trim().split(/\s+/).filter(Boolean).length
+                        console.debug('trinka:wordcount', words)
                     }
                 }}
                 onDismiss={async (id) => {

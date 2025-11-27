@@ -15,6 +15,7 @@ export interface Recommendation {
     actionType: ActionType
     estimatedImpact: EstimatedImpact
     previewPatch?: any
+    range?: { from: number; to: number }
 }
 
 interface RecommendationCardProps {

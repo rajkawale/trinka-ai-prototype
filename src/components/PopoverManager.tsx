@@ -55,24 +55,15 @@ export const PopoverProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const popoverRect = popoverRef.current.getBoundingClientRect()
         const viewportWidth = window.innerWidth
         const viewportHeight = window.innerHeight
-        const offset = options.offset || 10
+        const offset = options.offset || 8 // Default 8px offset
 
         // Default to top centered
         let top = anchorRect.top - popoverRect.height - offset
         let left = anchorRect.left + (anchorRect.width / 2) - (popoverRect.width / 2)
 
-        // Flip to bottom if not enough space on top (less than 120px or popover height)
-        // Requirement: If rect.top < 120px place popover below
-        if (anchorRect.top < 120 || top < 10) {
+        // Flip to bottom if not enough space on top
+        if (top < 10) {
             top = anchorRect.bottom + offset
-        }
-
-        // Requirement: If rect.bottom > innerHeight - 120px place popover above (already default, but ensure logic holds)
-        if (anchorRect.bottom > viewportHeight - 120 && top > anchorRect.bottom) {
-            // If we flipped to bottom but it's too low, try top again if space permits
-            if (anchorRect.top > popoverRect.height + offset) {
-                top = anchorRect.top - popoverRect.height - offset
-            }
         }
 
         // Clamp horizontal
@@ -86,6 +77,12 @@ export const PopoverProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const scrollY = window.scrollY
 
         setPosition({ top: top + scrollY, left: left + scrollX })
+
+        console.debug('trinka:popover_open', {
+            x: left + scrollX,
+            y: top + scrollY,
+            selectionText: anchor instanceof Range ? anchor.toString() : 'element'
+        })
     }, [anchor, options.offset])
 
     useEffect(() => {
