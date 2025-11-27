@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import Editor from './components/Editor'
+import Editor, { type EditorRef } from './components/Editor'
 import Copilot from './components/Copilot'
 import { Menu, History, RotateCcw, Eye, Copy, X, User as UserIcon, Settings, MessageSquare, HelpCircle } from 'lucide-react'
 import { cn, trinkaApi } from './lib/utils'
@@ -15,12 +15,18 @@ function App() {
   const [versionHistory, setVersionHistory] = useState<any[]>([])
   const [showChat, setShowChat] = useState(true)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
+  const [copilotInitialMessage, setCopilotInitialMessage] = useState<string | null>(null)
   const [documentTitle, setDocumentTitle] = useState(() => {
     return localStorage.getItem('trinka-document-title') || 'Untitled document'
   })
   const menuRef = useRef<HTMLDivElement>(null)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const profileMenuRef = useRef<HTMLDivElement>(null)
+  const editorRef = useRef<EditorRef>(null)
+
+  const handleInsertText = (text: string) => {
+    editorRef.current?.insertContent(text)
+  }
 
   useEffect(() => {
     localStorage.setItem('trinka-document-title', documentTitle)
@@ -258,7 +264,15 @@ function App() {
             "overflow-y-auto p-8 transition-all duration-300",
             showChat ? "flex-1" : "w-full"
           )}>
-            <Editor />
+            <Editor
+              ref={editorRef}
+              onTriggerCopilot={(message?: string) => {
+                setShowChat(true)
+                if (message) {
+                  setCopilotInitialMessage(message)
+                }
+              }}
+            />
           </div>
 
           {/* Chat Window - Right Side Below Header */}
@@ -271,6 +285,9 @@ function App() {
                 onClose={() => setShowChat(false)}
                 docId="current-doc"
                 defaultShowRecommendations={true}
+                initialMessage={copilotInitialMessage}
+                onMessageHandled={() => setCopilotInitialMessage(null)}
+                onInsertText={handleInsertText}
               />
             </aside>
           )}

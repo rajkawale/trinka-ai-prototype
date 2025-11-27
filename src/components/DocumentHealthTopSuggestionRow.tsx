@@ -7,7 +7,7 @@ import { usePopover } from './PopoverManager'
 interface DocumentHealthTopSuggestionRowProps {
     suggestion: Recommendation
     docId: string
-    onApply?: (suggestionId: string) => void
+    onApply?: (suggestionId: string, text: string) => void
     onDismiss?: (suggestionId: string) => void
 }
 

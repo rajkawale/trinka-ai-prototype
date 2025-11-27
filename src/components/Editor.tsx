@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, forwardRef, useImperativeHandle } from 'react'
 import { useEditor, EditorContent, BubbleMenu } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import BubbleMenuExtension from '@tiptap/extension-bubble-menu'
@@ -54,18 +54,27 @@ type OutlineItem = {
 type QualitySignal = {
     label: string
     value: string
-    status: 'success' | 'warning' | 'info'
+    status: 'success' | 'warning' | 'error' | 'info'
 }
 
 type PreviewState = {
     id: string
-    label: string
-    intent: string
-    status: 'loading' | 'ready' | 'error'
-    original: string
     suggestion: string
     range: { from: number; to: number }
+    status: 'loading' | 'ready' | 'error'
+    label?: string
+    intent?: string
+    original?: string
     changedTokens?: { from: number; to: number }[]
+}
+
+type VersionSnapshot = {
+    id: string
+    timestamp: string
+    action: string
+    summary: string
+    delta: string
+    word_count: number
 }
 
 type AiAction = {
@@ -77,14 +86,7 @@ type AiAction = {
     icon?: any
 }
 
-type VersionSnapshot = {
-    id: string
-    timestamp: string
-    action: string
-    delta: string
-}
-
-const INLINE_ACTIONS: AiAction[] = [
+const INLINE_ACTIONS = [
     { id: 'rewrite', label: 'Rewrite', description: 'Sharper + academic safe', mode: 'rewrite', tone: 'academic' },
     { id: 'clarify', label: 'Clarify', description: 'Explain dense phrasing', mode: 'clarify', tone: 'academic' },
     { id: 'summarize', label: 'Summarize', description: '3-line digest', mode: 'summarize', tone: 'neutral' },
@@ -99,7 +101,15 @@ const createRequestId = () => {
     return `${Date.now()}`
 }
 
-const Editor = () => {
+export interface EditorRef {
+    insertContent: (text: string) => void
+}
+
+interface EditorProps {
+    onTriggerCopilot?: (initialMessage?: string) => void
+}
+
+const Editor = forwardRef<EditorRef, EditorProps>(({ onTriggerCopilot }, ref) => {
     const docId = 'current-doc'
     const [outline, setOutline] = useState<OutlineItem[]>([])
     const [qualitySignals, setQualitySignals] = useState<QualitySignal[]>([
@@ -113,6 +123,7 @@ const Editor = () => {
     const [isHealthCollapsed, setIsHealthCollapsed] = useState(false)
     const [hoverPreviewPosition, setHoverPreviewPosition] = useState<{ left: number; top: number } | null>(null)
     const healthButtonRef = useRef<HTMLButtonElement>(null)
+    const containerRef = useRef<HTMLDivElement>(null)
     const [wordCount, setWordCount] = useState(0)
     const [readTime, setReadTime] = useState('0 min')
     const [revisionCount, setRevisionCount] = useState(0)
@@ -126,6 +137,38 @@ const Editor = () => {
     const [showVersionTimeline, setShowVersionTimeline] = useState(false)
     const [selectedFactorForImprovement, setSelectedFactorForImprovement] = useState<string | null>(null)
     const [writingScore, setWritingScore] = useState(100)
+    const [dictionary, setDictionary] = useState<Set<string>>(() => {
+        const saved = localStorage.getItem('trinka-dictionary')
+        return saved ? new Set(JSON.parse(saved)) : new Set()
+    })
+    const [ignoredWords, setIgnoredWords] = useState<Set<string>>(new Set())
+    const [smartEditInput, setSmartEditInput] = useState('')
+    const [showSmartEditInput, setShowSmartEditInput] = useState(false)
+
+    useImperativeHandle(ref, () => ({
+        insertContent: (text: string) => {
+            if (editor) {
+                editor.chain().focus().insertContent(text).run()
+            }
+        }
+    }))
+
+    const handleSmartEditSubmit = (e: React.FormEvent) => {
+        e.preventDefault()
+        if (!smartEditInput.trim()) return
+
+        const selection = editor?.state.selection
+        const selectedText = selection ? editor?.state.doc.textBetween(selection.from, selection.to, ' ') : ''
+
+        const prompt = `${smartEditInput}\n\nSelected Text:\n"${selectedText}"`
+
+        if (onTriggerCopilot) {
+            onTriggerCopilot(prompt)
+        }
+
+        setShowSmartEditInput(false)
+        setSmartEditInput('')
+    }
 
     const showToast = useCallback((message: string, undo?: () => void) => {
         setToast({ message, undo })
@@ -197,6 +240,104 @@ const Editor = () => {
         setShowGoalsModal(false)
         showToast('Preferences saved')
     }
+
+    const createSnapshot = useCallback(async (action: string, delta: string) => {
+        const plainText = editor?.state.doc.textBetween(0, editor.state.doc.content.size, ' ') || ''
+        const words = plainText.trim().split(/\s+/).filter(Boolean).length
+
+        const snapshot: VersionSnapshot = {
+            id: createRequestId(),
+            timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+            action,
+            delta,
+            summary: `${action} - ${words} words`,
+            word_count: words
+        }
+        setVersions(prev => [snapshot, ...prev].slice(0, 20))
+        setRevisionCount(prev => prev + 1)
+
+        // Save to backend
+        try {
+            await fetch(trinkaApi('/versions'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(snapshot)
+            })
+        } catch (error) {
+            console.error('Failed to save snapshot:', error)
+        }
+        return snapshot
+    }, [editor])
+
+    const handleTopSuggestionApply = useCallback((id: string, text?: string) => {
+        if (!editor) return
+        const suggestion = topSuggestions.find(s => s.id === id)
+        if (suggestion) {
+            // Apply text if range exists and is valid
+            if (suggestion.range && suggestion.range.to > suggestion.range.from) {
+                const content = text || suggestion.replacementText || suggestion.fullText || suggestion.summary
+                editor.chain()
+                    .focus()
+                    .setTextSelection({ from: suggestion.range.from, to: suggestion.range.to })
+                    .insertContent(content)
+                    .run()
+            }
+
+            showToast(`Applied: ${suggestion.title}`)
+            setTopSuggestions(prev => prev.filter(s => s.id !== id))
+            setRevisionCount(prev => prev + 1)
+
+            // Log
+            console.debug('trinka:suggestion_apply', { id: suggestion.id, text })
+
+            // Create snapshot
+            createSnapshot(suggestion.actionType || 'fix', text || suggestion.summary)
+        }
+    }, [editor, topSuggestions, showToast, createSnapshot])
+
+    const handleTopSuggestionDismiss = useCallback(async (id: string) => {
+        setTopSuggestions(prev => prev.filter(s => s.id !== id))
+        // API call (fire and forget)
+        try {
+            await fetch(trinkaApi('/api/recommendations/dismiss'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: 'current-user', docId, recommendationId: id })
+            })
+        } catch (e) { console.error('Dismiss failed', e) }
+    }, [docId])
+
+    const handleAddToDictionary = useCallback((text: string) => {
+        setDictionary(prev => {
+            const next = new Set(prev)
+            next.add(text)
+            localStorage.setItem('trinka-dictionary', JSON.stringify(Array.from(next)))
+            return next
+        })
+        showToast(`Added "${text}" to dictionary`)
+    }, [showToast])
+
+    const handleIgnore = useCallback((text: string) => {
+        setIgnoredWords(prev => {
+            const next = new Set(prev)
+            next.add(text)
+            return next
+        })
+        showToast(`Ignored "${text}" for this session`)
+    }, [showToast])
+
+    const handleTopSuggestionPreview = useCallback((rec: Recommendation) => {
+        if (!editor || !rec.range) return
+
+        // Scroll to view
+        editor.chain()
+            .focus()
+            .setTextSelection({ from: rec.range.from, to: rec.range.to })
+            .scrollIntoView()
+            .run()
+
+        // Highlight (optional, selection is usually enough)
+    }, [editor])
 
     // Update metrics based on goals
     const updateMeta = useCallback(() => {
@@ -341,6 +482,11 @@ const Editor = () => {
         const recommendations: Recommendation[] = []
 
         const addIssue = (from: number, to: number, type: 'grammar' | 'tone' | 'ai-suggestion', message: string, suggestion: string, original: string) => {
+            // Filter out dictionary/ignored words
+            if (dictionary.has(original) || ignoredWords.has(original)) {
+                return
+            }
+
             const id = `issue-${Date.now()}-${Math.random()}`
             issues.push({ from, to, type, message, suggestion })
             recommendations.push({
@@ -373,7 +519,7 @@ const Editor = () => {
 
         setGrammarToneIssues(issues)
         setTopSuggestions(recommendations)
-    }, [editor])
+    }, [editor, dictionary, ignoredWords])
 
     // Initial simulation on mount
     useEffect(() => {
@@ -479,35 +625,7 @@ const Editor = () => {
         return () => editor.view.dom.removeEventListener('click', handleClick)
     }, [editor, openPopover, closePopover])
 
-    const createSnapshot = useCallback(async (action: string, delta: string) => {
-        const snapshot: VersionSnapshot = {
-            id: createRequestId(),
-            timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-            action,
-            delta
-        }
-        setVersions(prev => [snapshot, ...prev].slice(0, 20))
-        setRevisionCount(prev => prev + 1)
 
-        // Save to backend
-        try {
-            const plainText = editor?.state.doc.textBetween(0, editor.state.doc.content.size, ' ') || ''
-            const words = plainText.trim().split(/\s+/).filter(Boolean).length
-            await fetch(trinkaApi('/versions'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    summary: `${action} - ${words} words`,
-                    word_count: words,
-                    action,
-                    delta
-                })
-            })
-        } catch (error) {
-            console.error('Failed to save snapshot:', error)
-        }
-        return snapshot
-    }, [editor])
 
     const handleApplyQuickFix = (fix: string) => {
         showToast(`Applying fix: ${fix}...`)
@@ -527,6 +645,12 @@ const Editor = () => {
             return
         }
 
+        // Route "Smart Edit" to Copilot
+        if (action.mode === 'smart' && onTriggerCopilot) {
+            onTriggerCopilot(`Please improve this text: "${selected}"`)
+            return
+        }
+
         // Create recommendation object
         const id = `rec-${Date.now()}`
         const recommendation: Recommendation = {
@@ -540,21 +664,36 @@ const Editor = () => {
             range: { from, to }
         }
 
-        // Open popover immediately
-        const range = document.createRange()
+        // Robust anchoring
+        let anchor: any = null
+
+        // Try window selection first
         const selection = window.getSelection()
-        if (selection && selection.rangeCount > 0) {
-            range.setStart(selection.getRangeAt(0).startContainer, selection.getRangeAt(0).startOffset)
-            range.setEnd(selection.getRangeAt(0).endContainer, selection.getRangeAt(0).endOffset)
+        if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+            anchor = selection.getRangeAt(0)
+        } else {
+            // Fallback to coordsAtPos
+            const startCoords = editor.view.coordsAtPos(from)
+            const endCoords = editor.view.coordsAtPos(to)
+            anchor = {
+                getBoundingClientRect: () => new DOMRect(
+                    startCoords.left,
+                    startCoords.top,
+                    endCoords.right - startCoords.left,
+                    endCoords.bottom - startCoords.top
+                )
+            }
         }
 
-        openPopover(range, (
+        if (!anchor) return
+
+        openPopover(anchor, (
             <RecommendationDetailPopover
                 recommendation={recommendation}
                 docId="current-doc"
                 onClose={closePopover}
                 onShowToast={showToast}
-                onApply={(text) => {
+                onApply={(_id: string, text: string) => {
                     // Transactional apply
                     editor.chain()
                         .focus()
@@ -576,6 +715,8 @@ const Editor = () => {
                     // Create snapshot
                     createSnapshot(action.label, text)
                 }}
+                onAddToDictionary={handleAddToDictionary}
+                onIgnore={handleIgnore}
             />
         ), {
             placement: 'bottom',
@@ -626,7 +767,7 @@ const Editor = () => {
 
 
     return (
-        <div className="w-full flex gap-4" ref={editorRef}>
+        <div className="w-full flex gap-4" ref={containerRef}>
             {/* Left Panel - Document Intelligence */}
             <aside
                 className={cn(
@@ -794,48 +935,15 @@ const Editor = () => {
                                     </button>
                                 </div>
                                 <div className="space-y-1">
-                                    <DocumentHealthTopSuggestionRow
-                                        suggestion={{
-                                            id: 'suggestion-1',
-                                            title: 'This paragraph is overly complex.',
-                                            summary: 'Simplify sentence structure',
-                                            fullText: 'This paragraph contains multiple nested clauses and complex sentence structures that may reduce readability. Consider breaking it into shorter, clearer sentences.',
-                                            actionType: 'tighten',
-                                            estimatedImpact: 'medium'
-                                        }}
-                                        docId="current-doc"
-                                        onApply={() => {
-                                            showToast(`Applied: This paragraph is overly complex. Undo`)
-                                        }}
-                                    />
-                                    <DocumentHealthTopSuggestionRow
-                                        suggestion={{
-                                            id: 'suggestion-2',
-                                            title: 'Try reducing passive voice.',
-                                            summary: 'Use active voice for clarity',
-                                            fullText: 'Several sentences in this section use passive voice, which can make the writing less direct. Consider rewriting in active voice where possible.',
-                                            actionType: 'rewrite',
-                                            estimatedImpact: 'high'
-                                        }}
-                                        docId="current-doc"
-                                        onApply={() => {
-                                            showToast(`Applied: Try reducing passive voice. Undo`)
-                                        }}
-                                    />
-                                    <DocumentHealthTopSuggestionRow
-                                        suggestion={{
-                                            id: 'suggestion-3',
-                                            title: 'Sentence length exceeds recommended readability.',
-                                            summary: 'Break into shorter sentences',
-                                            fullText: 'Some sentences exceed 25 words, which can reduce readability. Consider splitting long sentences into two or more shorter ones.',
-                                            actionType: 'tighten',
-                                            estimatedImpact: 'low'
-                                        }}
-                                        docId="current-doc"
-                                        onApply={() => {
-                                            showToast(`Applied: Sentence length exceeds recommended readability. Undo`)
-                                        }}
-                                    />
+                                    {topSuggestions.slice(0, 3).map(suggestion => (
+                                        <DocumentHealthTopSuggestionRow
+                                            key={suggestion.id}
+                                            suggestion={suggestion}
+                                            docId="current-doc"
+                                            onApply={(id: string, text: string) => handleTopSuggestionApply(id, text)}
+                                            onDismiss={(id) => handleTopSuggestionDismiss(id)}
+                                        />
+                                    ))}
                                 </div>
                             </div>
                         </div>
@@ -1137,11 +1245,11 @@ const Editor = () => {
                         <BubbleMenu
                             editor={editor}
                             shouldShow={({ state, from, to }) => {
+                                if (showSmartEditInput) return true
                                 const { selection } = state
                                 const { empty } = selection
                                 const text = state.doc.textBetween(from, to, ' ')
                                 if (empty || !text.trim()) {
-                                    console.debug('trinka:popover-suppressed-no-selection')
                                     return false
                                 }
                                 return true
@@ -1151,44 +1259,77 @@ const Editor = () => {
                                 placement: 'top',
                                 animation: 'fade',
                                 interactive: true,
-                                appendTo: () => editorRef.current || document.body,
+                                appendTo: () => containerRef.current || document.body,
                                 offset: [0, 8],
-                                zIndex: 100
+                                zIndex: 100,
+                                onHidden: () => {
+                                    setShowSmartEditInput(false)
+                                }
                             }}
                         >
                             <div
-                                className="flex items-center gap-1 bg-white/90 backdrop-blur-lg shadow-lg border border-gray-200/50 rounded-full px-2 py-1 overflow-visible animate-in fade-in slide-in-from-bottom-2"
+                                className={cn(
+                                    "flex items-center gap-1 bg-white/90 backdrop-blur-lg shadow-lg border border-gray-200/50 rounded-full px-2 py-1 animate-in fade-in slide-in-from-bottom-2 max-w-[90vw] overflow-x-auto no-scrollbar",
+                                    showSmartEditInput ? "rounded-lg p-2" : "rounded-full"
+                                )}
                                 style={{
                                     minHeight: '36px',
                                     whiteSpace: 'nowrap'
                                 }}
                             >
-                                <button
-                                    onClick={() => requestRewrite({
-                                        id: 'smart',
-                                        label: 'Smart Edit',
-                                        description: 'Auto-improve',
-                                        mode: 'smart',
-                                        tone: 'academic'
-                                    })}
-                                    className="flex items-center gap-1 px-2 py-1 rounded-full bg-[#6B46FF]/10 hover:bg-[#6B46FF]/20 text-[#6B46FF] transition-colors group flex-shrink-0 border border-[#6B46FF]/20"
-                                    style={{ fontSize: '13px' }}
-                                >
-                                    <Sparkles className="w-3.5 h-3.5" />
-                                    <span className="font-semibold whitespace-nowrap">Smart Edit</span>
-                                </button>
-                                <div className="w-px h-4 bg-gray-300 mx-1" />
-                                {INLINE_ACTIONS.map(action => (
-                                    <button
-                                        key={action.id}
-                                        onClick={() => requestRewrite(action)}
-                                        className="flex items-center gap-1 px-2 py-1 rounded-full hover:bg-gray-100 transition-colors group flex-shrink-0"
-                                        style={{ fontSize: '13px' }}
-                                        aria-label={action.label}
-                                    >
-                                        <span className="font-medium text-gray-700 whitespace-nowrap">{action.label}</span>
-                                    </button>
-                                ))}
+                                {showSmartEditInput ? (
+                                    <form onSubmit={handleSmartEditSubmit} className="flex items-center gap-2">
+                                        <input
+                                            type="text"
+                                            value={smartEditInput}
+                                            onChange={(e) => setSmartEditInput(e.target.value)}
+                                            placeholder="Ask Trinka Assist..."
+                                            className="w-48 px-2 py-1 text-sm border border-gray-200 rounded focus:outline-none focus:border-[#6B46FF]"
+                                            autoFocus
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Escape') {
+                                                    setShowSmartEditInput(false)
+                                                    editor.commands.focus()
+                                                }
+                                            }}
+                                        />
+                                        <button
+                                            type="submit"
+                                            className="p-1 bg-[#6B46FF] text-white rounded hover:bg-[#6B46FF]/90"
+                                        >
+                                            <Sparkles className="w-3 h-3" />
+                                        </button>
+                                    </form>
+                                ) : (
+                                    <>
+                                        <button
+                                            onMouseDown={(e) => {
+                                                e.preventDefault()
+                                                setShowSmartEditInput(true)
+                                            }}
+                                            className="flex items-center gap-1 px-2 py-1 rounded-full bg-[#6B46FF]/10 hover:bg-[#6B46FF]/20 text-[#6B46FF] transition-colors group flex-shrink-0 border border-[#6B46FF]/20"
+                                            style={{ fontSize: '13px' }}
+                                        >
+                                            <Sparkles className="w-3.5 h-3.5" />
+                                            <span className="font-semibold whitespace-nowrap">Precision Edit</span>
+                                        </button>
+                                        <div className="w-px h-4 bg-gray-300 mx-1" />
+                                        {INLINE_ACTIONS.map(action => (
+                                            <button
+                                                key={action.id}
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault()
+                                                    requestRewrite(action)
+                                                }}
+                                                className="flex items-center gap-1 px-2 py-1 rounded-full hover:bg-gray-100 transition-colors group flex-shrink-0"
+                                                style={{ fontSize: '13px' }}
+                                                aria-label={action.label}
+                                            >
+                                                <span className="font-medium text-gray-700 whitespace-nowrap">{action.label}</span>
+                                            </button>
+                                        ))}
+                                    </>
+                                )}
                             </div>
                         </BubbleMenu>
                     )}
@@ -1412,51 +1553,9 @@ const Editor = () => {
                 onClose={() => setShowSuggestionsModal(false)}
                 suggestions={topSuggestions}
                 docId="current-doc"
-                onApply={async (id) => {
-                    const suggestion = topSuggestions.find(s => s.id === id)
-                    if (suggestion && suggestion.range && suggestion.summary) {
-                        // Transactional apply
-                        editor.chain()
-                            .focus()
-                            .setTextSelection({ from: suggestion.range.from, to: suggestion.range.to })
-                            .insertContent(suggestion.summary)
-                            .run()
-
-                        console.debug('trinka:suggestion_apply', {
-                            id: suggestion.id,
-                            original: suggestion.originalText,
-                            replacedWith: suggestion.summary
-                        })
-
-                        showToast(`Applied: ${suggestion.title}`)
-                        setTopSuggestions(prev => prev.filter(s => s.id !== id))
-
-                        // Update word count immediately
-                        const plainText = editor.state.doc.textBetween(0, editor.state.doc.content.size, ' ')
-                        const words = plainText.trim().split(/\s+/).filter(Boolean).length
-                        console.debug('trinka:wordcount', words)
-                    }
-                }}
-                onDismiss={async (id) => {
-                    try {
-                        await fetch(trinkaApi('/api/recommendations/dismiss'), {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                userId: 'current-user',
-                                docId: 'current-doc',
-                                recommendationId: id
-                            })
-                        })
-                        setTopSuggestions(prev => prev.filter(s => s.id !== id))
-                    } catch (error) {
-                        console.error('Dismiss failed:', error)
-                    }
-                }}
-                onPreview={(rec) => {
-                    // TODO: Open preview modal with diff view
-                    console.log('Preview:', rec.id)
-                }}
+                onApply={(id) => handleTopSuggestionApply(id)}
+                onDismiss={(id) => handleTopSuggestionDismiss(id)}
+                onPreview={handleTopSuggestionPreview}
             />
             <GoalsModal
                 isOpen={showGoalsModal}
@@ -1473,6 +1572,8 @@ const Editor = () => {
             )}
         </div>
     )
-}
+})
+
+Editor.displayName = 'Editor'
 
 export default Editor

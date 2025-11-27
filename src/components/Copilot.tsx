@@ -12,20 +12,59 @@ interface Message {
     metadata?: string
 }
 
-const Copilot = ({ 
+const MOCK_RECOMMENDATIONS: Recommendation[] = [
+    {
+        id: 'mock-1',
+        title: 'Improve clarity',
+        summary: 'Simplify sentence structure for better readability.',
+        fullText: 'Consider breaking this long sentence into two for better readability.',
+        originalText: '...',
+        actionType: 'rewrite',
+        estimatedImpact: 'high',
+        range: { from: 0, to: 0 }
+    },
+    {
+        id: 'mock-2',
+        title: 'Fix tone',
+        summary: 'Change "kids" to "children" for academic tone.',
+        fullText: 'Change "kids" to "children" to maintain a formal academic tone.',
+        originalText: 'kids',
+        actionType: 'tone',
+        estimatedImpact: 'medium',
+        range: { from: 0, to: 0 }
+    },
+    {
+        id: 'mock-3',
+        title: 'Fix grammar',
+        summary: 'Correct subject-verb agreement.',
+        fullText: 'The data suggests (not suggest) that the hypothesis is valid.',
+        originalText: 'suggest',
+        actionType: 'rewrite',
+        estimatedImpact: 'high',
+        range: { from: 0, to: 0 }
+    }
+]
+
+const Copilot = ({
     isCompact,
     onToggleCompact,
     hasSelection: _hasSelection,
     onClose,
     docId = 'default-doc',
-    defaultShowRecommendations = true
-}: { 
+    defaultShowRecommendations = true,
+    initialMessage,
+    onMessageHandled,
+    onInsertText
+}: {
     isCompact?: boolean
     onToggleCompact?: () => void
     hasSelection?: boolean
     onClose?: () => void
     docId?: string
     defaultShowRecommendations?: boolean
+    initialMessage?: string | null
+    onMessageHandled?: () => void
+    onInsertText?: (text: string) => void
 }) => {
     const [messages, setMessages] = useState<Message[]>([])
     const [input, setInput] = useState('')
@@ -68,6 +107,8 @@ const Copilot = ({
         }
     }, [])
 
+
+
     // Load recommendations visibility from storage
     useEffect(() => {
         const userId = 'current-user' // TODO: Get from auth context
@@ -108,6 +149,10 @@ const Copilot = ({
             }
         } catch (error) {
             console.error('Failed to fetch recommendations:', error)
+            // Fallback to mock data
+            const filtered = MOCK_RECOMMENDATIONS.filter((r: Recommendation) => !dismissedRecommendations.has(r.id))
+            setRecommendations(filtered)
+
             if (typeof window !== 'undefined' && (window as any).analytics) {
                 (window as any).analytics.track('rec.fetch.error', { docId })
             }
@@ -125,14 +170,14 @@ const Copilot = ({
     const handleShowMore = () => {
         const newExpanded = !recommendationsExpanded
         setRecommendationsExpanded(newExpanded)
-        
+
         if (typeof window !== 'undefined' && (window as any).analytics) {
             (window as any).analytics.track('rec.showMore', {
                 docId,
                 requestedCount: newExpanded ? 15 : 5
             })
         }
-        
+
         fetchRecommendations(newExpanded ? 15 : 5)
     }
 
@@ -152,7 +197,7 @@ const Copilot = ({
                 await response.json()
                 // Remove from recommendations
                 setRecommendations(prev => prev.filter((r: Recommendation) => r.id !== recommendationId))
-                
+
                 // Show toast
                 const suggestion = recommendations.find((r: Recommendation) => r.id === recommendationId)
                 if (suggestion) {
@@ -185,7 +230,7 @@ const Copilot = ({
                     recommendationId
                 })
             })
-            
+
             setDismissedRecommendations(prev => new Set([...prev, recommendationId]))
             setRecommendations(prev => prev.filter((r: Recommendation) => r.id !== recommendationId))
 
@@ -231,15 +276,11 @@ const Copilot = ({
         const handleKeyDown = (e: KeyboardEvent) => {
             const activeElement = document.activeElement
             const isInCopilot = activeElement?.closest('.copilot-panel')
-            
+
             if (!isInCopilot) return
 
-            // R toggles Recommended Actions when Copilot has focus
-            if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey && !e.altKey) {
-                e.preventDefault()
-                toggleRecommendations()
-            }
-            
+
+
             // M opens model/tone selector when composer has focus
             if ((e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 const activeElement = document.activeElement
@@ -248,7 +289,7 @@ const Copilot = ({
                     setShowModelSelector(true)
                 }
             }
-            
+
             // U opens upload modal
             if ((e.key === 'u' || e.key === 'U') && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 const activeElement = document.activeElement
@@ -257,7 +298,7 @@ const Copilot = ({
                     setShowUploadModal(true)
                 }
             }
-            
+
             // Enter sends message, Shift+Enter creates newline
             if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                 e.preventDefault()
@@ -272,16 +313,16 @@ const Copilot = ({
         window.addEventListener('keydown', handleKeyDown)
         return () => window.removeEventListener('keydown', handleKeyDown)
     }, [input, isLoading, showRecommendations])
-    
+
     // Persist recommendations visibility
     const toggleRecommendations = () => {
         const newState = !showRecommendations
         setShowRecommendations(newState)
-        
+
         const userId = 'current-user'
         const storageKey = `trinka.recsVisible.${userId}.${docId}`
         localStorage.setItem(storageKey, String(newState))
-        
+
         // Sync to server
         fetch(trinkaApi('/api/user-settings'), {
             method: 'PATCH',
@@ -308,8 +349,8 @@ const Copilot = ({
         const intent = meta?.intent || 'rewrite'
         const tone = meta?.tone || 'academic'
 
-        // Simulate clarifying question for ambiguous prompts
-        if (prompt.length < 10 && !meta) {
+        // Simulate clarifying question for ambiguous prompts (only if first message)
+        if (prompt.length < 5 && !meta && messages.length === 0) {
             setClarifyingQuestion('What would you like me to do?')
             return
         }
@@ -321,6 +362,7 @@ const Copilot = ({
             intent
         }
 
+        console.log('Adding user message:', userMessage)
         setMessages(prev => [...prev, userMessage])
         setIsLoading(true)
         setStatus('streaming')
@@ -375,7 +417,7 @@ const Copilot = ({
             setIsLoading(false)
             setStatus('idle')
             setStreamingProgress(0)
-            
+
             // Record action history (saves silently, no popup)
             setActionHistory(prev => {
                 const newHistory = [{
@@ -397,7 +439,7 @@ const Copilot = ({
             setStatus('idle')
             setStreamingProgress(0)
         }
-    }, [])
+    }, [messages])
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
@@ -410,6 +452,16 @@ const Copilot = ({
         }
         sendPrompt(currentInput)
     }
+
+    // Handle initial message from props
+    useEffect(() => {
+        if (initialMessage && !isLoading) {
+            sendPrompt(initialMessage)
+            if (onMessageHandled) {
+                onMessageHandled()
+            }
+        }
+    }, [initialMessage, isLoading, sendPrompt, onMessageHandled])
 
     const handleFileUpload = (files: FileList | null) => {
         if (!files) return
@@ -482,7 +534,7 @@ const Copilot = ({
                 {/* Streaming Progress Bar */}
                 {status === 'streaming' && (
                     <div className="h-0.5 bg-gray-200 rounded-full overflow-hidden mt-2">
-                        <div 
+                        <div
                             className="h-full bg-[#6C2BD9] transition-all duration-300"
                             style={{ width: `${streamingProgress}%` }}
                         />
@@ -603,6 +655,14 @@ const Copilot = ({
                                     >
                                         <RotateCcw className="w-3.5 h-3.5 text-gray-600" />
                                     </button>
+                                    <button
+                                        className="p-1.5 hover:bg-gray-200 rounded transition-colors"
+                                        title="Insert into editor"
+                                        aria-label="Insert into editor"
+                                        onClick={() => onInsertText?.(message.content)}
+                                    >
+                                        <Plus className="w-3.5 h-3.5 text-gray-600" />
+                                    </button>
                                 </div>
                             )}
                         </div>
@@ -650,7 +710,7 @@ const Copilot = ({
             </div>
 
             {/* Empty Suggestion Strip Container - 40px height */}
-            <div 
+            <div
                 className="suggestion-strip-empty h-10 border-t border-gray-100 bg-white"
                 aria-hidden="true"
                 tabIndex={-1}
