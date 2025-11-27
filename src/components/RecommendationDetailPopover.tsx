@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
-import { X, Trash2, MoreHorizontal, ArrowRight, RotateCw, ChevronLeft, ChevronRight } from 'lucide-react'
+import { X, RotateCw, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { Recommendation } from './RecommendationCard'
 import { trinkaApi, cn } from '../lib/utils'
-import { diffWords } from '../lib/diffUtils'
 
 interface RecommendationDetailPopoverProps {
     recommendation: Recommendation
@@ -28,7 +27,6 @@ const RecommendationDetailPopover = ({
     onShowToast
 }: RecommendationDetailPopoverProps) => {
     const [isApplying, setIsApplying] = useState(false)
-    const [showMenu, setShowMenu] = useState(false)
     const [isRegenerating, setIsRegenerating] = useState(false)
 
     // Version history state
@@ -107,23 +105,58 @@ const RecommendationDetailPopover = ({
         }
     }
 
-    const handleAddToDictionary = () => {
-        const word = recommendation.originalText
-        if (!word) return
+    const handleRegenerate = async () => {
+        setIsRegenerating(true)
 
-        const dictionary = JSON.parse(localStorage.getItem('trinka-dictionary') || '[]')
-        if (!dictionary.includes(word)) {
-            dictionary.push(word)
-            localStorage.setItem('trinka-dictionary', JSON.stringify(dictionary))
-            if (onShowToast) onShowToast(`Added "${word}" to dictionary`)
-        } else {
-            if (onShowToast) onShowToast(`"${word}" is already in dictionary`)
+        try {
+            // Mock regeneration with variations
+            const variations = [
+                'enhanced phrasing',
+                'improved clarity',
+                'refined expression',
+                'polished version',
+                'optimized wording'
+            ]
+
+            const baseText = recommendation.originalText || ''
+            const randomVariation = variations[Math.floor(Math.random() * variations.length)]
+            const newSuggestion = `${baseText} (${randomVariation})`
+
+            // Simulate API delay
+            await new Promise(resolve => setTimeout(resolve, 500))
+
+            const newVersion: SuggestionVersion = {
+                id: `v${suggestionHistory.length + 1}`,
+                text: newSuggestion,
+                timestamp: new Date()
+            }
+
+            setSuggestionHistory(prev => {
+                const newHistory = [newVersion, ...prev].slice(0, 3)
+                console.debug('trinka:gen_history', {
+                    selectionHash: `${docId}-${recommendation.originalText}`,
+                    versions: newHistory.map(v => ({ id: v.id, text: v.text }))
+                })
+                return newHistory
+            })
+            setCurrentVersionIndex(0)
+
+            console.debug('trinka:suggestion_regen', { id: newVersion.id, ok: true })
+
+            if (onShowToast) {
+                onShowToast('Generated new suggestion')
+            }
+        } catch (err) {
+            console.error('Regenerate failed:', err)
+            if (onShowToast) {
+                onShowToast('Failed to regenerate')
+            }
+        } finally {
+            setIsRegenerating(false)
         }
-        setShowMenu(false)
-        onClose()
     }
 
-    const handleExplain = () => {
+    const handlePreviousVersion = () => {
         if (currentVersionIndex > 0) {
             setCurrentVersionIndex(currentVersionIndex - 1)
         }
@@ -178,7 +211,6 @@ const RecommendationDetailPopover = ({
         ? 'text-purple-600 bg-purple-50'
         : 'text-blue-600 bg-blue-50'
 
-    return (
     return (
         <div
             className="w-[420px] bg-white rounded-xl shadow-2xl border border-gray-200/60 ring-1 ring-black/5 overflow-hidden font-sans animate-in fade-in zoom-in-95 duration-200 flex flex-col"
