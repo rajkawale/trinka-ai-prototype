@@ -202,7 +202,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({ onTriggerCopilot }, ref) =>
     })
 
     const [grammarToneIssues, setGrammarToneIssues] = useState<GrammarToneIssue[]>([])
-    const editorRef = useRef<HTMLDivElement>(null)
+
     const { openPopover, closePopover } = usePopover()
 
     const editor = useEditor({
