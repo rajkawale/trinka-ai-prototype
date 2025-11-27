@@ -542,6 +542,47 @@ const Editor = () => {
             return
         }
 
+        // For Smart Edit, we use the Recommendation flow instead of PreviewState
+        if (action.mode === 'smart') {
+            const id = `smart-${Date.now()}`
+            const recommendation: Recommendation = {
+                id,
+                title: 'Smart Edit',
+                summary: 'Generating...', // Will be updated after fetch
+                fullText: 'Preserving entities and numbers while improving flow.',
+                originalText: selected,
+                actionType: 'rewrite',
+                estimatedImpact: 'high',
+                range: { from, to }
+            }
+
+            // Open popover immediately with loading state
+            const range = document.createRange()
+            const selection = window.getSelection()
+            if (selection && selection.rangeCount > 0) {
+                range.setStart(selection.getRangeAt(0).startContainer, selection.getRangeAt(0).startOffset)
+                range.setEnd(selection.getRangeAt(0).endContainer, selection.getRangeAt(0).endOffset)
+            }
+
+            openPopover(range, (
+                <RecommendationDetailPopover
+                    recommendation={recommendation}
+                    docId="current-doc"
+                    onClose={closePopover}
+                    onShowToast={showToast}
+                    onApply={() => {
+                        // This will be handled by the popover's internal state after generation
+                        closePopover()
+                    }}
+                />
+            ), {
+                placement: 'bottom',
+                offset: 8,
+                isInteractive: true
+            })
+
+            return
+        }
 
         const previewId = createRequestId()
         setPreview({
@@ -1166,7 +1207,13 @@ const Editor = () => {
                                 }}
                             >
                                 <button
-                                    onClick={() => requestRewrite({ id: 'smart', label: 'Smart Edit', description: 'Auto-improve', mode: 'smart', tone: 'academic' })}
+                                    onClick={() => requestRewrite({
+                                        id: 'smart',
+                                        label: 'Smart Edit',
+                                        description: 'Auto-improve',
+                                        mode: 'smart',
+                                        tone: 'academic'
+                                    })}
                                     className="flex items-center gap-1 px-2 py-1 rounded-full bg-[#6B46FF]/10 hover:bg-[#6B46FF]/20 text-[#6B46FF] transition-colors group flex-shrink-0 border border-[#6B46FF]/20"
                                     style={{ fontSize: '13px' }}
                                 >
