@@ -124,65 +124,6 @@ const RecommendationDetailPopover = ({
     }
 
     const handleExplain = () => {
-        if (onShowToast) {
-            onShowToast(`Explanation: ${recommendation.title} - ${recommendation.summary}`)
-        }
-        setShowMenu(false)
-    }
-
-    const handleRegenerate = async () => {
-        setIsRegenerating(true)
-
-        try {
-            // Mock regeneration with variations
-            const variations = [
-                'enhanced phrasing',
-                'improved clarity',
-                'refined expression',
-                'polished version',
-                'optimized wording'
-            ]
-
-            const baseText = recommendation.originalText || ''
-            const randomVariation = variations[Math.floor(Math.random() * variations.length)]
-            const newSuggestion = `${baseText} (${randomVariation})`
-
-            // Simulate API delay
-            await new Promise(resolve => setTimeout(resolve, 500))
-
-            const newVersion: SuggestionVersion = {
-                id: `v${suggestionHistory.length + 1}`,
-                text: newSuggestion,
-                timestamp: new Date()
-            }
-
-            setSuggestionHistory(prev => {
-                const newHistory = [newVersion, ...prev].slice(0, 3) // Keep last 3, newest first
-
-                // Log history
-                console.debug('trinka:gen_history', {
-                    selectionHash: `${docId}-${recommendation.originalText}`,
-                    versions: newHistory.map(v => ({ id: v.id, text: v.text }))
-                })
-
-                return newHistory
-            })
-            setCurrentVersionIndex(0) // Focus on newest
-
-            if (onShowToast) {
-                onShowToast('Generated new suggestion')
-            }
-        } catch (error) {
-            console.error('Regenerate failed:', error)
-            if (onShowToast) {
-                onShowToast('Failed to regenerate')
-            }
-        } finally {
-            setIsRegenerating(false)
-        }
-    }
-
-    const handlePreviousVersion = () => {
         if (currentVersionIndex > 0) {
             setCurrentVersionIndex(currentVersionIndex - 1)
         }
