@@ -156,8 +156,18 @@ const RecommendationDetailPopover = ({
                 timestamp: new Date()
             }
 
-            setSuggestionHistory(prev => [...prev, newVersion])
-            setCurrentVersionIndex(suggestionHistory.length)
+            setSuggestionHistory(prev => {
+                const newHistory = [newVersion, ...prev].slice(0, 3) // Keep last 3, newest first
+
+                // Log history
+                console.debug('trinka:gen_history', {
+                    selectionHash: `${docId}-${recommendation.originalText}`,
+                    versions: newHistory.map(v => ({ id: v.id, text: v.text }))
+                })
+
+                return newHistory
+            })
+            setCurrentVersionIndex(0) // Focus on newest
 
             if (onShowToast) {
                 onShowToast('Generated new suggestion')
