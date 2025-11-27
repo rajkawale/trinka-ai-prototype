@@ -1,5 +1,3 @@
-
-
 export type DemoScenario = {
   id: 'onboarding' | 'therapy' | 'safety'
   title: string

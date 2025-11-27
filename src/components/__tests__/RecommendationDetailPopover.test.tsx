@@ -23,12 +23,9 @@ describe('RecommendationDetailPopover', () => {
     const mockOnDismiss = vi.fn()
 
     beforeEach(() => {
-        (globalThis as any).fetch = vi.fn(() =>
-            Promise.resolve({
-                ok: true,
-                json: () => Promise.resolve({}),
-            })
-        )
+        vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+            json: () => Promise.resolve({ rewritten_text: 'Rewritten text' })
+        })))
     })
 
     afterEach(() => {
@@ -64,7 +61,7 @@ describe('RecommendationDetailPopover', () => {
         expect(mockOnApply).toHaveBeenCalledWith('1')
     })
 
-    it('should call onDismiss when Ignore button is clicked', () => {
+    it('should call onDismiss when Dismiss button is clicked', () => {
         render(
             <RecommendationDetailPopover
                 recommendation={mockRecommendation}
@@ -74,8 +71,8 @@ describe('RecommendationDetailPopover', () => {
                 onDismiss={mockOnDismiss}
             />
         )
-        const ignoreButton = screen.getByTitle('Ignore')
-        fireEvent.click(ignoreButton)
+        const dismissButton = screen.getByTitle('Dismiss')
+        fireEvent.click(dismissButton)
         expect(mockOnDismiss).toHaveBeenCalledWith('1')
     })
 })
