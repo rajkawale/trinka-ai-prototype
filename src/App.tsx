@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import Editor from './components/Editor'
 import Copilot from './components/Copilot'
-import { Menu, History, RotateCcw, Eye, Copy, X, User as UserIcon, Settings, MessageSquare, HelpCircle } from 'lucide-react'
-import { cn } from './lib/utils'
+import { Menu, History, RotateCcw, Eye, Copy, X, User as UserIcon, Settings, MessageSquare, HelpCircle, Sparkles } from 'lucide-react'
+import { cn, trinkaApi } from './lib/utils'
+import { useFeatureFlags } from './contexts/FeatureFlagContext'
 
 function App() {
+  const { features, toggleFeature } = useFeatureFlags()
   const [isCopilotCompact, setIsCopilotCompact] = useState(false)
   const [windowWidth, setWindowWidth] = useState(window.innerWidth)
   const [hasSelection] = useState(false)
@@ -14,6 +16,7 @@ function App() {
   const [versionHistory, setVersionHistory] = useState<any[]>([])
   const [showChat, setShowChat] = useState(true)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
+  const [documentTitle, setDocumentTitle] = useState('Untitled document')
   const menuRef = useRef<HTMLDivElement>(null)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const profileMenuRef = useRef<HTMLDivElement>(null)
@@ -51,7 +54,7 @@ function App() {
 
   const fetchVersionHistory = async () => {
     try {
-      const response = await fetch('http://localhost:8000/versions?limit=5')
+      const response = await fetch(trinkaApi('/versions?limit=5'))
       const data = await response.json()
       setVersionHistory(data.snapshots || [])
     } catch (error) {
@@ -61,7 +64,7 @@ function App() {
 
   const handleRestoreVersion = async (snapshotId: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/versions/${snapshotId}/restore`)
+      const response = await fetch(trinkaApi(`/versions/${snapshotId}/restore`))
       const data = await response.json()
       if (data.delta) {
         // In production, restore the version in the editor
@@ -83,19 +86,35 @@ function App() {
         <header className="h-14 bg-white border-b border-gray-200 flex items-center px-6 justify-between flex-shrink-0 z-10">
           <div className="flex items-center gap-3" style={{ gap: '12px' }}>
             {/* Trinka Logo - Before Menu */}
-            <a 
-              href="/" 
+            <a
+              href="/"
               className="flex items-center gap-2"
               aria-label="Trinka home"
               id="brand-logo"
             >
-              <div className="w-8 h-8 bg-[#6B46FF] rounded-lg flex items-center justify-center text-white font-bold text-lg">
-                T
+              <div className="w-8 h-8 bg-[#6B46FF] rounded-lg flex items-center justify-center text-white shadow-sm shadow-purple-200">
+                <Sparkles className="w-5 h-5 fill-white" />
               </div>
-              <h1 className="font-semibold text-gray-800 text-lg tracking-tight">Trinka AI</h1>
-              <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-medium rounded-full">Prototype</span>
+              <h1 className="font-semibold text-gray-900 text-lg tracking-tight">Trinca AI</h1>
+              <span className="px-2 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-bold uppercase tracking-wider rounded-full border border-purple-100">Prototype</span>
             </a>
-            
+
+            {/* Dev Toggle */}
+            {import.meta.env.DEV && (
+              <button
+                onClick={() => toggleFeature('trinkaPopoverV2')}
+                className={cn(
+                  "ml-2 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full border transition-colors",
+                  features.trinkaPopoverV2
+                    ? "bg-green-100 text-green-700 border-green-200"
+                    : "bg-gray-100 text-gray-500 border-gray-200"
+                )}
+                title="Toggle V2 Features"
+              >
+                V2: {features.trinkaPopoverV2 ? 'ON' : 'OFF'}
+              </button>
+            )}
+
             {/* Hamburger Menu */}
             <div className="relative" ref={menuRef}>
               <button
@@ -107,7 +126,7 @@ function App() {
                 <Menu className="w-5 h-5 text-gray-600" />
                 <span className="text-sm text-gray-600 font-medium">Menu</span>
               </button>
-              
+
               {/* Dropdown Menu */}
               {showMenu && (
                 <div className="absolute top-full left-0 mt-2 w-56 bg-white border border-gray-200 rounded-[10px] shadow-[0_6px_14px_rgba(0,0,0,0.06)] py-1.5 z-50">
@@ -158,10 +177,16 @@ function App() {
                 </div>
               )}
             </div>
-            
-            {/* Document Title */}
+
+            {/* Document Title (editable) */}
             <div className="text-sm font-medium text-gray-700">
-              Untitled Document
+              <input
+                type="text"
+                value={documentTitle}
+                onChange={(e) => setDocumentTitle(e.target.value)}
+                className="bg-transparent border border-transparent hover:border-gray-200 focus:border-gray-300 focus:ring-0 rounded px-2 py-1 text-sm text-gray-800 min-w-[180px] max-w-[260px] truncate outline-none"
+                aria-label="Document title"
+              />
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -241,11 +266,11 @@ function App() {
           )}>
             <Editor />
           </div>
-          
+
           {/* Chat Window - Right Side Below Header */}
           {!isMobile && showChat && (
             <aside className="w-[400px] border-l border-gray-200 bg-white flex-shrink-0 flex flex-col">
-              <Copilot 
+              <Copilot
                 isCompact={isCopilotCompact}
                 onToggleCompact={() => setIsCopilotCompact(!isCopilotCompact)}
                 hasSelection={hasSelection}
@@ -265,7 +290,7 @@ function App() {
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-800">Trinka Copilot</h3>
               <button
-                onClick={() => {/* Toggle mobile copilot */}}
+                onClick={() => {/* Toggle mobile copilot */ }}
                 className="p-1 hover:bg-gray-100 rounded"
               >
                 <span className="text-xs text-gray-600">Close</span>
@@ -273,7 +298,7 @@ function App() {
             </div>
           </div>
           <div className="overflow-y-auto max-h-[calc(60vh-60px)]">
-            <Copilot 
+            <Copilot
               hasSelection={hasSelection}
             />
           </div>
@@ -305,11 +330,11 @@ function App() {
                         <div className="flex-1">
                           <p className="text-sm font-medium text-gray-800">{snapshot.summary || snapshot.action}</p>
                           <p className="text-xs text-gray-500 mt-1">
-                            {new Date(snapshot.timestamp).toLocaleString('en-US', { 
-                              month: 'short', 
-                              day: 'numeric', 
-                              hour: '2-digit', 
-                              minute: '2-digit' 
+                            {new Date(snapshot.timestamp).toLocaleString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
                             })}
                           </p>
                           <div className="flex items-center gap-4 mt-1">

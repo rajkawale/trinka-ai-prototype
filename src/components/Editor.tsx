@@ -4,9 +4,17 @@ import StarterKit from '@tiptap/starter-kit'
 import BubbleMenuExtension from '@tiptap/extension-bubble-menu'
 import { GrammarToneExtension } from '../extensions/GrammarToneExtension'
 import type { GrammarToneIssue } from '../extensions/GrammarToneExtension'
+import { cn, trinkaApi } from '../lib/utils'
+import { DEMO_SCENARIOS, type DemoScenario } from '../lib/demoScenarios'
+import GoalsModal, { type Goals } from './GoalsModal'
 import DocumentHealthTopSuggestionRow from './DocumentHealthTopSuggestionRow'
 import SuggestionsModal from './SuggestionsModal'
-import type { Recommendation } from './RecommendationCard'
+import { usePopover } from './PopoverManager'
+import RecommendationDetailPopover from './RecommendationDetailPopover'
+import RecommendationListPopover from './RecommendationListPopover'
+import type { Recommendation, ActionType } from './RecommendationCard'
+import { useClickOutside } from '../hooks/useClickOutside'
+import { useDebounce } from '../hooks/useDebounce'
 import {
     Bold,
     Italic,
@@ -28,9 +36,14 @@ import {
     ChevronLeft,
     Gauge,
     Clock,
-    Upload
+    Upload,
+    AlignLeft,
+    AlignCenter,
+    AlignRight,
+    AlignJustify,
+    Sigma,
+    Target
 } from 'lucide-react'
-import { cn } from '../lib/utils'
 
 type OutlineItem = {
     id: string
@@ -80,7 +93,6 @@ const INLINE_ACTIONS: AiAction[] = [
     { id: 'tone', label: 'Tone Fix', description: 'Formal register', mode: 'tone', tone: 'formal' }
 ]
 
-
 const createRequestId = () => {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
         return crypto.randomUUID()
@@ -112,12 +124,36 @@ const Editor = () => {
     const [topSuggestions, setTopSuggestions] = useState<Recommendation[]>([])
     const [versions, setVersions] = useState<VersionSnapshot[]>([])
     const [showVersionTimeline, setShowVersionTimeline] = useState(false)
-    const [fontSize, setFontSize] = useState(16)
+
+    // Toolbar states
+    // Toolbar states
     const [showFontMenu, setShowFontMenu] = useState(false)
     const [showParagraphMenu, setShowParagraphMenu] = useState(false)
+    const [showDemoMenu, setShowDemoMenu] = useState(false)
+    const [fontSize, setFontSize] = useState(16)
+
+    const fontMenuRef = useRef<HTMLDivElement>(null)
+    const paragraphMenuRef = useRef<HTMLDivElement>(null)
+    const demoMenuRef = useRef<HTMLDivElement>(null)
+
+    useClickOutside(fontMenuRef, () => setShowFontMenu(false))
+    useClickOutside(paragraphMenuRef, () => setShowParagraphMenu(false))
+    useClickOutside(demoMenuRef, () => setShowDemoMenu(false))
+
+    // Goals & Document Health
+    const [showGoalsModal, setShowGoalsModal] = useState(false)
+    const [goals, setGoals] = useState<Goals>(() => {
+        const saved = localStorage.getItem('trinka-goals')
+        return saved ? JSON.parse(saved) : {
+            audience: 'expert',
+            formality: 'formal',
+            domain: 'academic'
+        }
+    })
+
     const [grammarToneIssues, setGrammarToneIssues] = useState<GrammarToneIssue[]>([])
-    const [hoveredIssue, setHoveredIssue] = useState<{ issue: GrammarToneIssue; element: HTMLElement } | null>(null)
     const editorRef = useRef<HTMLDivElement>(null)
+    const { openPopover, closePopover } = usePopover()
 
     const editor = useEditor({
         extensions: [
@@ -148,126 +184,88 @@ const Editor = () => {
         },
     })
 
+    const handleSaveGoals = (newGoals: Goals) => {
+        setGoals(newGoals)
+        localStorage.setItem('trinka-goals', JSON.stringify(newGoals))
+        setShowGoalsModal(false)
+        showToast('Preferences saved')
+    }
+
+    // Update metrics based on goals
+    const updateMeta = useCallback(() => {
+        if (!editor) return
+
+        const plainText = editor.state.doc.textBetween(0, editor.state.doc.content.size, ' ')
+        const words = plainText.trim().split(/\s+/).filter(Boolean).length
+
+        const nodes: OutlineItem[] = []
+        editor.state.doc.descendants((node, pos) => {
+            if (node.type.name === 'heading') {
+                nodes.push({
+                    id: `${node.textContent}-${pos}`,
+                    label: node.textContent || 'Untitled section',
+                    level: node.attrs.level ?? 2,
+                    position: pos
+                })
+            }
+        })
+        setOutline(nodes)
+
+        // Calculate metrics based on Goals
+        let toneStatus = 'Stable'
+        let clarityStatus = 'Crisp'
+        let readabilityStatus = 'Good'
+
+        // Formality Logic
+        if (goals.formality === 'formal') {
+            toneStatus = words % 5 === 0 ? 'Formal' : 'Needs Polish'
+        } else if (goals.formality === 'casual') {
+            toneStatus = words % 5 === 0 ? 'Casual' : 'Too Stiff'
+        }
+
+        // Audience Logic
+        if (goals.audience === 'expert') {
+            readabilityStatus = words > 150 ? 'Complex (Good)' : 'Too Simple'
+        } else if (goals.audience === 'student') {
+            readabilityStatus = words > 100 ? 'Hard' : 'Good'
+        }
+
+        // Domain Logic
+        const integrityStatus = goals.domain === 'academic' ? (words % 7 ? 'Safe' : 'Review Required') : 'N/A'
+
+        const coherenceStatus = words > 200 ? (words % 2 ? 'High' : 'Medium') : 'High'
+
+        setWordCount(words)
+        const readingTimeMinutes = Math.ceil(words / 200)
+        setReadTime(`${readingTimeMinutes} min`)
+
+        setQualitySignals([
+            { label: 'Tone', value: toneStatus, status: toneStatus.includes('Needs') || toneStatus.includes('Too') ? 'warning' : 'success' },
+            { label: 'Clarity', value: clarityStatus, status: 'success' },
+            { label: 'Structure', value: `${nodes.length || 1} headings`, status: 'info' },
+            { label: 'Coherence', value: coherenceStatus, status: coherenceStatus === 'High' ? 'success' : 'warning' },
+            { label: 'Readability', value: readabilityStatus, status: readabilityStatus.includes('Too') || readabilityStatus === 'Hard' ? 'warning' : 'success' },
+            { label: 'Integrity', value: integrityStatus, status: integrityStatus === 'Safe' || integrityStatus === 'N/A' ? 'success' : 'warning' },
+        ])
+    }, [editor, goals])
+
+    const debouncedUpdateMeta = useDebounce(updateMeta, 500)
+
     useEffect(() => {
         if (!editor) return
 
-        const updateMeta = () => {
-            const plainText = editor.state.doc.textBetween(0, editor.state.doc.content.size, ' ')
-            const words = plainText.trim().split(/\s+/).filter(Boolean).length
+        // Initial call
+        updateMeta()
 
-            const nodes: OutlineItem[] = []
-            editor.state.doc.descendants((node, pos) => {
-                if (node.type.name === 'heading') {
-                    nodes.push({
-                        id: `${node.textContent}-${pos}`,
-                        label: node.textContent || 'Untitled section',
-                        level: node.attrs.level ?? 2,
-                        position: pos
-                    })
-                }
-            })
-            setOutline(nodes)
-
-            // Calculate metrics
-            const toneStatus = words % 3 ? 'Stable' : (words % 5 ? 'Neutral' : 'Aggressive')
-            const clarityStatus = words > 120 ? 'Needs Work' : 'Crisp'
-            const coherenceStatus = words > 200 ? (words % 2 ? 'High' : 'Medium') : 'High'
-            const readabilityStatus = words > 150 ? 'Hard' : (words < 50 ? 'Easy' : 'Good')
-            const integrityStatus = words % 7 ? 'Safe' : 'Review Required'
-
-            setWordCount(words)
-            const readingTimeMinutes = Math.ceil(words / 200) // 200 wpm default
-            setReadTime(`${readingTimeMinutes} min`)
-
-            setQualitySignals([
-                { label: 'Tone', value: toneStatus, status: toneStatus === 'Stable' ? 'success' : (toneStatus === 'Neutral' ? 'info' : 'warning') },
-                { label: 'Clarity', value: clarityStatus, status: clarityStatus === 'Crisp' ? 'success' : 'warning' },
-                { label: 'Structure', value: `${nodes.length || 1} headings`, status: 'info' },
-                { label: 'Coherence Score', value: coherenceStatus, status: coherenceStatus === 'High' ? 'success' : (coherenceStatus === 'Medium' ? 'info' : 'warning') },
-                { label: 'Readability', value: readabilityStatus, status: readabilityStatus === 'Good' ? 'success' : (readabilityStatus === 'Easy' ? 'info' : 'warning') },
-                { label: 'Academic Integrity', value: integrityStatus, status: integrityStatus === 'Safe' ? 'success' : 'warning' },
-            ])
-        }
-
+        // Debounced updates
         editor.on('create', updateMeta)
-        editor.on('update', updateMeta)
+        editor.on('update', debouncedUpdateMeta)
 
-        // Simulate grammar/tone issues for demo
-        const simulateIssues = () => {
-            const plainText = editor.state.doc.textBetween(0, editor.state.doc.content.size, ' ')
-            const issues: GrammarToneIssue[] = []
-            
-            // Find "has significantly" - grammar issue
-            const grammarMatch = plainText.indexOf('has significantly')
-            if (grammarMatch !== -1) {
-                issues.push({
-                    from: grammarMatch,
-                    to: grammarMatch + 'has significantly'.length,
-                    type: 'grammar',
-                    message: 'Consider using "significantly has" or rephrase',
-                    suggestion: 'has had a significant impact'
-                })
-            }
-            
-            // Find "content generation" - tone issue
-            const toneMatch = plainText.indexOf('content generation')
-            if (toneMatch !== -1) {
-                issues.push({
-                    from: toneMatch,
-                    to: toneMatch + 'content generation'.length,
-                    type: 'tone',
-                    message: 'Consider more formal phrasing',
-                    suggestion: 'textual composition'
-                })
-            }
-            
-            // Find "AI can enhance" - AI suggestion
-            const aiMatch = plainText.indexOf('AI can enhance')
-            if (aiMatch !== -1) {
-                issues.push({
-                    from: aiMatch,
-                    to: aiMatch + 'AI can enhance'.length,
-                    type: 'ai-suggestion',
-                    message: 'AI can improve clarity and grammatical precision',
-                    suggestion: 'AI can improve'
-                })
-            }
-            
-            setGrammarToneIssues(issues)
-        }
-
-        simulateIssues()
-        editor.on('update', simulateIssues)
-
-        // Keyboard shortcuts
-        const handleKeyDown = (e: KeyboardEvent) => {
-            // D key toggles Document health
-            if (e.key === 'd' || e.key === 'D') {
-                if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-                    e.preventDefault()
-                    setIsHealthCollapsed(!isHealthCollapsed)
-                }
-            }
-            // M key opens model/tone selector (moved to Settings)
-            // U key opens upload
-            if (e.key === 'u' || e.key === 'U') {
-                if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-                    e.preventDefault()
-                    setShowUploadModal(true)
-                }
-            }
-        }
-        window.addEventListener('keydown', handleKeyDown)
-        
         return () => {
-            if (editor) {
-                editor.off('create', updateMeta)
-                editor.off('update', updateMeta)
-                editor.off('update', simulateIssues)
-            }
-            window.removeEventListener('keydown', handleKeyDown)
+            editor.off('create', updateMeta)
+            editor.off('update', debouncedUpdateMeta)
         }
-    }, [editor, isHealthCollapsed])
+    }, [editor, updateMeta, debouncedUpdateMeta])
 
     // Update extension when issues change
     useEffect(() => {
@@ -279,9 +277,96 @@ const Editor = () => {
         }
     }, [editor, grammarToneIssues])
 
-    // Handle hover on grammar/tone underlines
+    // Load Demo Scenario
+    const loadDemoScenario = useCallback((scenarioId: string) => {
+        const scenario = DEMO_SCENARIOS[scenarioId]
+        if (!scenario || !editor) return
+
+        editor.commands.setContent(scenario.content)
+
+        const issues: GrammarToneIssue[] = []
+        const recommendations: Recommendation[] = []
+
+        scenario.issues.forEach(issue => {
+            const id = `issue-${Date.now()}-${Math.random()}`
+            issues.push({
+                from: issue.from,
+                to: issue.to,
+                type: issue.type,
+                message: issue.message,
+                suggestion: issue.suggestion
+            })
+            recommendations.push({
+                id,
+                title: issue.message,
+                summary: issue.suggestion,
+                fullText: issue.suggestion,
+                originalText: issue.original,
+                actionType: issue.type === 'grammar' ? 'rewrite' : (issue.type === 'tone' ? 'tone' : 'rewrite') as ActionType,
+                estimatedImpact: 'medium'
+            })
+        })
+
+        setGrammarToneIssues(issues)
+        setTopSuggestions(recommendations)
+        setShowDemoMenu(false)
+        showToast(`Loaded ${scenario.title}`)
+    }, [editor])
+
+    // Simulate grammar/tone issues (helper)
+    const simulateIssues = useCallback(() => {
+        if (!editor) return
+        const plainText = editor.state.doc.textBetween(0, editor.state.doc.content.size, ' ')
+        const issues: GrammarToneIssue[] = []
+        const recommendations: Recommendation[] = []
+
+        const addIssue = (from: number, to: number, type: 'grammar' | 'tone' | 'ai-suggestion', message: string, suggestion: string, original: string) => {
+            const id = `issue-${Date.now()}-${Math.random()}`
+            issues.push({ from, to, type, message, suggestion })
+            recommendations.push({
+                id,
+                title: message,
+                summary: suggestion,
+                fullText: suggestion,
+                originalText: original,
+                actionType: type === 'grammar' ? 'rewrite' : (type === 'tone' ? 'tone' : 'rewrite') as ActionType,
+                estimatedImpact: 'medium'
+            })
+        }
+
+        // Find "has significantly"
+        const grammarMatch = plainText.indexOf('has significantly')
+        if (grammarMatch !== -1) {
+            addIssue(grammarMatch, grammarMatch + 17, 'grammar', 'Consider using "significantly has"', 'has had a significant impact', 'has significantly')
+        }
+        // Find "content generation"
+        const toneMatch = plainText.indexOf('content generation')
+        if (toneMatch !== -1) {
+            addIssue(toneMatch, toneMatch + 18, 'tone', 'Consider more formal phrasing', 'textual composition', 'content generation')
+        }
+        // Find "AI can enhance"
+        const aiMatch = plainText.indexOf('AI can enhance')
+        if (aiMatch !== -1) {
+            addIssue(aiMatch, aiMatch + 14, 'ai-suggestion', 'AI can improve clarity', 'AI can improve', 'AI can enhance')
+        }
+
+        setGrammarToneIssues(issues)
+        setTopSuggestions(recommendations)
+    }, [editor])
+
+    // Initial simulation on mount
+    useEffect(() => {
+        if (editor) {
+            simulateIssues()
+        }
+    }, [editor, simulateIssues])
+
+    // Handle hover on grammar/tone underlines + popover lifecycle (Tasks A,B,G)
+    // Handle hover on grammar/tone underlines + popover lifecycle (Tasks A,B,G)
     useEffect(() => {
         if (!editor) return
+
+        const editorElement = editor.view.dom
 
         const handleMouseOver = (e: MouseEvent) => {
             const target = e.target as HTMLElement
@@ -289,35 +374,112 @@ const Editor = () => {
                 const type = target.getAttribute('data-type')
                 const message = target.getAttribute('data-message') || ''
                 const suggestion = target.getAttribute('data-suggestion') || ''
-                
-                const issue: GrammarToneIssue = {
-                    from: 0,
-                    to: 0,
-                    type: type as 'grammar' | 'tone' | 'ai-suggestion',
-                    message,
-                    suggestion
+
+                const recommendation: Recommendation = {
+                    id: `issue-${Date.now()}`,
+                    title: message,
+                    summary: suggestion,
+                    fullText: message,
+                    originalText: target.textContent || '',
+                    actionType: (type === 'grammar' ? 'tighten' : 'paraphrase') as ActionType,
+                    estimatedImpact: 'medium'
                 }
-                
-                setHoveredIssue({ issue, element: target })
+
+                openPopover(target, (
+                    <RecommendationDetailPopover
+                        recommendation={recommendation}
+                        docId="current-doc"
+                        onClose={closePopover}
+                        onApply={() => {
+                            // Apply logic here or pass handler
+                            closePopover()
+                        }}
+                    />
+                ), {
+                    placement: 'bottom',
+                    offset: 5
+                })
             }
         }
 
-        const handleMouseOut = (e: MouseEvent) => {
-            const target = e.target as HTMLElement
-            if (target.classList.contains('grammar-tone-underline')) {
-                setTimeout(() => setHoveredIssue(null), 100)
+        // Selection update handler for popover
+        const handleSelectionUpdate = () => {
+            const { from, to, empty } = editor.state.selection
+
+            if (!empty) {
+                const domSelection = window.getSelection()
+                if (domSelection && domSelection.rangeCount > 0) {
+                    const range = domSelection.getRangeAt(0)
+                    const text = domSelection.toString()
+
+                    if (text.trim().length > 0) {
+                        // Check for overlapping issues
+                        const overlappingIssues = grammarToneIssues.filter(issue =>
+                            (issue.from >= from && issue.from < to) ||
+                            (issue.to > from && issue.to <= to) ||
+                            (issue.from <= from && issue.to >= to)
+                        )
+
+                        let recommendations: Recommendation[] = []
+
+                        if (overlappingIssues.length > 0) {
+                            recommendations = overlappingIssues.map(issue => ({
+                                id: `issue-${issue.from}-${Date.now()}`,
+                                title: issue.message,
+                                summary: issue.suggestion || '',
+                                fullText: issue.message,
+                                originalText: text, // Using selected text as context
+                                actionType: (issue.type === 'grammar' ? 'tighten' : 'paraphrase') as ActionType,
+                                estimatedImpact: 'medium'
+                            }))
+                        } else {
+                            // Generic rewrite
+                            recommendations.push({
+                                id: `selection-${Date.now()}`,
+                                title: 'Improve selection',
+                                summary: 'Rewrite for clarity and tone',
+                                fullText: 'AI-powered rewrite',
+                                originalText: text,
+                                actionType: 'rewrite',
+                                estimatedImpact: 'medium'
+                            })
+                        }
+
+                        const content = recommendations.length > 1
+                            ? (
+                                <RecommendationListPopover
+                                    recommendations={recommendations}
+                                    docId="current-doc"
+                                    onClose={closePopover}
+                                    onApply={() => closePopover()}
+                                />
+                            )
+                            : (
+                                <RecommendationDetailPopover
+                                    recommendation={recommendations[0]}
+                                    docId="current-doc"
+                                    onClose={closePopover}
+                                    onApply={() => closePopover()}
+                                />
+                            )
+
+                        openPopover(range, content, {
+                            placement: 'top',
+                            offset: 10
+                        })
+                    }
+                }
             }
         }
 
-        const editorElement = editor.view.dom
         editorElement.addEventListener('mouseover', handleMouseOver)
-        editorElement.addEventListener('mouseout', handleMouseOut)
+        editor.on('selectionUpdate', handleSelectionUpdate)
 
         return () => {
             editorElement.removeEventListener('mouseover', handleMouseOver)
-            editorElement.removeEventListener('mouseout', handleMouseOut)
+            editor.off('selectionUpdate', handleSelectionUpdate)
         }
-    }, [editor])
+    }, [editor, openPopover, closePopover])
 
     const showToast = useCallback((message: string, undo?: () => void) => {
         setToast({ message, undo })
@@ -333,12 +495,12 @@ const Editor = () => {
         }
         setVersions(prev => [snapshot, ...prev].slice(0, 20))
         setRevisionCount(prev => prev + 1)
-        
+
         // Save to backend
         try {
             const plainText = editor?.state.doc.textBetween(0, editor.state.doc.content.size, ' ') || ''
             const words = plainText.trim().split(/\s+/).filter(Boolean).length
-            await fetch('http://localhost:8000/versions', {
+            await fetch(trinkaApi('/versions'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -377,7 +539,7 @@ const Editor = () => {
         })
 
         try {
-            const response = await fetch('http://localhost:8000/rewrite', {
+            const response = await fetch(trinkaApi('/rewrite'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -388,11 +550,11 @@ const Editor = () => {
             })
             const data = await response.json()
             const suggestion = data?.rewritten_text ?? selected
-            
+
             // Highlight changed tokens (simple diff simulation)
             const changedTokens: { from: number; to: number }[] = []
             // In real implementation, use a proper diff algorithm
-            
+
             setPreview(current => current && current.id === previewId ? {
                 ...current,
                 suggestion,
@@ -421,11 +583,11 @@ const Editor = () => {
             .focus()
             .insertContentAt({ from: preview.range.from, to: preview.range.to }, preview.suggestion)
             .run()
-        
+
         // Create snapshot
         const delta = JSON.stringify({ from: preview.range.from, to: preview.range.to, text: preview.suggestion })
         createSnapshot('AI rewrite', delta)
-        
+
         showToast('Version saved • Undo', undoFn)
         setPreview(null)
     }
@@ -455,7 +617,7 @@ const Editor = () => {
     return (
         <div className="w-full flex gap-4" ref={editorRef}>
             {/* Left Panel - Document Intelligence */}
-            <aside 
+            <aside
                 className={cn(
                     "flex-shrink-0 bg-white/80 backdrop-blur-lg border border-gray-200 rounded-xl shadow-sm transition-all duration-[200ms] ease-in-out",
                     isHealthCollapsed ? "w-[40px] p-2 doc-health-collapsed" : "w-[280px] p-4"
@@ -485,9 +647,9 @@ const Editor = () => {
                         </button>
                         {/* Hover preview - above editor */}
                         {hoverPreviewPosition && (
-                            <div 
+                            <div
                                 className="fixed w-64 bg-white border border-gray-200 rounded-lg shadow-lg p-4 pointer-events-none transition-opacity"
-                                style={{ 
+                                style={{
                                     zIndex: 10000,
                                     left: `${hoverPreviewPosition.left}px`,
                                     top: `${hoverPreviewPosition.top}px`
@@ -515,6 +677,13 @@ const Editor = () => {
                         {/* Document Health Header */}
                         <div className="flex items-center justify-between">
                             <span className="text-[12px] font-medium text-[#6b6f76]">Document health</span>
+                            <button
+                                onClick={() => setShowGoalsModal(true)}
+                                className="p-1 hover:bg-gray-100 rounded transition-colors mr-1"
+                                title="Set Goals"
+                            >
+                                <Target className="w-3.5 h-3.5 text-gray-500" />
+                            </button>
                             <button
                                 onClick={() => setIsHealthCollapsed(true)}
                                 className="p-1 hover:bg-gray-100 rounded transition-colors"
@@ -681,53 +850,53 @@ const Editor = () => {
                     {/* Expanded Toolbar */}
                     <div className="flex items-center gap-1 p-2 border-b border-gray-100 bg-gray-50/50 flex-wrap relative z-10 pointer-events-auto">
                         {/* Formatting */}
-                <button
-                    onClick={() => editor.chain().focus().toggleBold().run()}
-                    className={cn(
+                        <button
+                            onClick={() => editor.chain().focus().toggleBold().run()}
+                            className={cn(
                                 "p-1.5 rounded hover:bg-gray-200 transition-colors",
                                 editor.isActive('bold') ? 'bg-gray-200 text-[#6B46FF]' : 'text-gray-600'
-                    )}
+                            )}
                             aria-label="Bold"
-                >
-                    <Bold className="w-4 h-4" />
-                </button>
-                <button
-                    onClick={() => editor.chain().focus().toggleItalic().run()}
-                    className={cn(
+                        >
+                            <Bold className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => editor.chain().focus().toggleItalic().run()}
+                            className={cn(
                                 "p-1.5 rounded hover:bg-gray-200 transition-colors",
                                 editor.isActive('italic') ? 'bg-gray-200 text-[#6B46FF]' : 'text-gray-600'
-                    )}
+                            )}
                             aria-label="Italic"
-                >
-                    <Italic className="w-4 h-4" />
-                </button>
+                        >
+                            <Italic className="w-4 h-4" />
+                        </button>
                         <div className="w-px h-4 bg-gray-300 mx-0.5" />
-                        
+
                         {/* Lists */}
-                <button
-                    onClick={() => editor.chain().focus().toggleBulletList().run()}
-                    className={cn(
+                        <button
+                            onClick={() => editor.chain().focus().toggleBulletList().run()}
+                            className={cn(
                                 "p-1.5 rounded hover:bg-gray-200 transition-colors",
                                 editor.isActive('bulletList') ? 'bg-gray-200 text-[#6B46FF]' : 'text-gray-600'
-                    )}
+                            )}
                             aria-label="Bullet list"
-                >
-                    <List className="w-4 h-4" />
-                </button>
-                <button
-                    onClick={() => editor.chain().focus().toggleOrderedList().run()}
-                    className={cn(
+                        >
+                            <List className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => editor.chain().focus().toggleOrderedList().run()}
+                            className={cn(
                                 "p-1.5 rounded hover:bg-gray-200 transition-colors",
                                 editor.isActive('orderedList') ? 'bg-gray-200 text-[#6B46FF]' : 'text-gray-600'
-                    )}
+                            )}
                             aria-label="Numbered list"
-                >
-                    <ListOrdered className="w-4 h-4" />
-                </button>
+                        >
+                            <ListOrdered className="w-4 h-4" />
+                        </button>
                         <div className="w-px h-4 bg-gray-300 mx-0.5" />
 
                         {/* Paragraph Styles */}
-                        <div className="relative">
+                        <div className="relative" ref={paragraphMenuRef}>
                             <button
                                 onClick={() => setShowParagraphMenu(!showParagraphMenu)}
                                 className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600 flex items-center gap-1"
@@ -737,7 +906,7 @@ const Editor = () => {
                                 <ChevronDown className="w-3 h-3" />
                             </button>
                             {showParagraphMenu && (
-                                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-1 z-50">
+                                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-1 z-50 w-40">
                                     {[1, 2, 3, 4].map(level => (
                                         <button
                                             key={level}
@@ -745,17 +914,33 @@ const Editor = () => {
                                                 editor.chain().focus().toggleHeading({ level: level as 1 | 2 | 3 | 4 }).run()
                                                 setShowParagraphMenu(false)
                                             }}
-                                            className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 rounded"
+                                            className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 rounded flex items-center gap-2"
                                         >
+                                            <span className={cn(
+                                                "font-bold",
+                                                level === 1 && "text-xl",
+                                                level === 2 && "text-lg",
+                                                level === 3 && "text-base",
+                                                level === 4 && "text-sm"
+                                            )}>H{level}</span>
                                             Heading {level}
                                         </button>
                                     ))}
+                                    <button
+                                        onClick={() => {
+                                            editor.chain().focus().setParagraph().run()
+                                            setShowParagraphMenu(false)
+                                        }}
+                                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 rounded"
+                                    >
+                                        Paragraph
+                                    </button>
                                 </div>
                             )}
                         </div>
 
                         {/* Font Size */}
-                        <div className="relative">
+                        <div className="relative" ref={fontMenuRef}>
                             <button
                                 onClick={() => setShowFontMenu(!showFontMenu)}
                                 className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600 flex items-center gap-1"
@@ -765,12 +950,14 @@ const Editor = () => {
                                 <ChevronDown className="w-3 h-3" />
                             </button>
                             {showFontMenu && (
-                                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-1 z-50">
-                                    {[12, 14, 16, 18, 20, 24].map(size => (
+                                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-1 z-50 max-h-60 overflow-y-auto">
+                                    {[12, 14, 16, 18, 20, 24, 30, 36, 48, 60, 72].map(size => (
                                         <button
                                             key={size}
                                             onClick={() => {
                                                 setFontSize(size)
+                                                // TODO: Apply font size extension
+                                                showToast(`Font size set to ${size}px (Visual only in prototype)`)
                                                 setShowFontMenu(false)
                                             }}
                                             className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 rounded"
@@ -780,11 +967,46 @@ const Editor = () => {
                                     ))}
                                 </div>
                             )}
-            </div>
+                        </div>
+
+                        <div className="w-px h-4 bg-gray-300 mx-0.5" />
+
+                        {/* Alignment (Mocked) */}
+                        <div className="flex items-center gap-0.5">
+                            <button
+                                onClick={() => showToast('Alignment requires additional extensions')}
+                                className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
+                                aria-label="Align left"
+                            >
+                                <AlignLeft className="w-4 h-4" />
+                            </button>
+                            <button
+                                onClick={() => showToast('Alignment requires additional extensions')}
+                                className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
+                                aria-label="Align center"
+                            >
+                                <AlignCenter className="w-4 h-4" />
+                            </button>
+                            <button
+                                onClick={() => showToast('Alignment requires additional extensions')}
+                                className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
+                                aria-label="Align right"
+                            >
+                                <AlignRight className="w-4 h-4" />
+                            </button>
+                            <button
+                                onClick={() => showToast('Alignment requires additional extensions')}
+                                className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
+                                aria-label="Align justify"
+                            >
+                                <AlignJustify className="w-4 h-4" />
+                            </button>
+                        </div>
 
                         {/* Insert Options */}
                         <div className="w-px h-4 bg-gray-300 mx-0.5" />
                         <button
+                            onClick={() => showToast('Table insertion requires Table extension')}
                             className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
                             aria-label="Insert table"
                             title="Insert table"
@@ -792,11 +1014,12 @@ const Editor = () => {
                             <Table className="w-4 h-4" />
                         </button>
                         <button
+                            onClick={() => editor.chain().focus().insertContent(' $$ ').run()}
                             className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
                             aria-label="Insert equation"
                             title="Insert equation"
                         >
-                            <span className="text-xs">ƒ</span>
+                            <Sigma className="w-4 h-4" />
                         </button>
                         <button
                             className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
@@ -805,10 +1028,49 @@ const Editor = () => {
                         >
                             <FileText className="w-4 h-4" />
                         </button>
+
+                        <div className="w-px h-4 bg-gray-300 mx-0.5" />
+
+                        {/* Demo Menu */}
+                        <div className="relative" ref={demoMenuRef}>
+                            <button
+                                onClick={() => setShowDemoMenu(!showDemoMenu)}
+                                className="px-3 py-1.5 bg-purple-50 text-[#6B46FF] text-xs font-medium rounded-lg hover:bg-purple-100 transition-colors flex items-center gap-1"
+                                aria-haspopup="true"
+                                aria-expanded={showDemoMenu}
+                                aria-label="Demo scenarios"
+                            >
+                                <Sparkles className="w-3 h-3" aria-hidden="true" />
+                                Demo
+                            </button>
+                            {showDemoMenu && (
+                                <div
+                                    className="absolute top-full right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-1 z-50 w-48"
+                                    role="menu"
+                                    aria-label="Select a demo scenario"
+                                >
+                                    {Object.values(DEMO_SCENARIOS).map(scenario => (
+                                        <button
+                                            key={scenario.id}
+                                            onClick={() => loadDemoScenario(scenario.id)}
+                                            className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded flex items-center gap-2"
+                                            role="menuitem"
+                                        >
+                                            <span className="w-2 h-2 rounded-full bg-[#6B46FF]" aria-hidden="true" />
+                                            {scenario.title}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                         <button
-                            className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
-                            aria-label="Insert citation"
-                            title="Insert citation (Phase 2)"
+                            onClick={() => editor.chain().focus().toggleBlockquote().run()}
+                            className={cn(
+                                "p-1.5 rounded hover:bg-gray-200 transition-colors",
+                                editor.isActive('blockquote') ? 'bg-gray-200 text-[#6B46FF]' : 'text-gray-600'
+                            )}
+                            aria-label="Quote"
+                            title="Quote"
                         >
                             <Quote className="w-4 h-4" />
                         </button>
@@ -823,15 +1085,15 @@ const Editor = () => {
                                 <span>
                                     AutoSave {versions.length > 0 ? versions[0].timestamp : new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                                 </span>
-                        </button>
+                            </button>
                         </div>
                     </div>
 
                     {/* Glassmorphic Inline Toolbar - Fixed with horizontal scroll */}
                     {editor && (
-                        <BubbleMenu 
-                            editor={editor} 
-                            tippyOptions={{ 
+                        <BubbleMenu
+                            editor={editor}
+                            tippyOptions={{
                                 duration: 100,
                                 placement: 'top',
                                 animation: 'fade',
@@ -841,9 +1103,9 @@ const Editor = () => {
                                 zIndex: 100 // Above editor
                             }}
                         >
-                            <div 
+                            <div
                                 className="flex items-center gap-1 bg-white/72 backdrop-blur-lg shadow-[0_8px_24px_rgba(0,0,0,0.12)] border border-gray-200/50 rounded-full px-2 py-1 overflow-x-auto scrollbar-hide animate-in fade-in slide-in-from-bottom-2"
-                                style={{ 
+                                style={{
                                     minHeight: '36px',
                                     maxWidth: '90vw',
                                     scrollbarWidth: 'none',
@@ -862,11 +1124,11 @@ const Editor = () => {
                                         <span className="font-medium text-gray-800 whitespace-nowrap">{action.label}</span>
                                     </button>
                                 ))}
-                    </div>
-                </BubbleMenu>
-            )}
+                            </div>
+                        </BubbleMenu>
+                    )}
 
-            <EditorContent editor={editor} />
+                    <EditorContent editor={editor} />
                 </div>
             </div>
 
@@ -965,86 +1227,8 @@ const Editor = () => {
                 </div>
             )}
 
-            {/* Grammar/Tone Hover Bubble */}
-            {hoveredIssue && (
-                <div
-                    className="fixed bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-50 min-w-[200px] max-w-[300px]"
-                    style={{
-                        left: `${hoveredIssue.element.getBoundingClientRect().left}px`,
-                        top: `${hoveredIssue.element.getBoundingClientRect().bottom + 8}px`,
-                    }}
-                >
-                    <div className="mb-2">
-                        <div className={cn(
-                            "text-xs font-medium mb-1",
-                            hoveredIssue.issue.type === 'grammar' && "text-red-600",
-                            hoveredIssue.issue.type === 'tone' && "text-blue-600",
-                            hoveredIssue.issue.type === 'ai-suggestion' && "text-[#6B46FF]"
-                        )}>
-                            {hoveredIssue.issue.type === 'grammar' && 'Grammar'}
-                            {hoveredIssue.issue.type === 'tone' && 'Tone'}
-                            {hoveredIssue.issue.type === 'ai-suggestion' && 'AI Suggestion'}
-                        </div>
-                        <p className="text-[13px] text-gray-700">{hoveredIssue.issue.message}</p>
-                        {hoveredIssue.issue.suggestion && (
-                            <p className="text-[12px] text-[#6b6f76] mt-1">
-                                Suggestion: <span className="text-[#6B46FF] font-medium">{hoveredIssue.issue.suggestion}</span>
-                            </p>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
-                        <button
-                            onClick={() => {
-                                if (hoveredIssue.issue.suggestion && editor) {
-                                    // Find the issue in the document and replace
-                                    const issue = grammarToneIssues.find(i => 
-                                        i.type === hoveredIssue.issue.type && 
-                                        i.message === hoveredIssue.issue.message
-                                    )
-                                    if (issue) {
-                                        editor.chain()
-                                            .focus()
-                                            .insertContentAt({ from: issue.from, to: issue.to }, hoveredIssue.issue.suggestion)
-                                            .run()
-                                        // Remove the fixed issue
-                                        setGrammarToneIssues(prev => prev.filter(i => i !== issue))
-                                    }
-                                }
-                                setHoveredIssue(null)
-                            }}
-                            className="px-3 py-1.5 bg-[#6B46FF] text-white text-xs font-medium rounded-lg hover:bg-[#6B46FF]/90 transition-colors"
-                        >
-                            Fix
-                        </button>
-                        <button
-                            onClick={() => {
-                                // Show explanation (could open Copilot with explanation)
-                                showToast(`Explanation: ${hoveredIssue.issue.message}`)
-                                setHoveredIssue(null)
-                            }}
-                            className="px-3 py-1.5 bg-gray-100 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-200 transition-colors"
-                        >
-                            Explain
-                        </button>
-                        <button
-                            onClick={() => {
-                                // Remove issue from list (ignore)
-                                const issue = grammarToneIssues.find(i => 
-                                    i.type === hoveredIssue.issue.type && 
-                                    i.message === hoveredIssue.issue.message
-                                )
-                                if (issue) {
-                                    setGrammarToneIssues(prev => prev.filter(i => i !== issue))
-                                }
-                                setHoveredIssue(null)
-                            }}
-                            className="px-3 py-1.5 text-gray-500 text-xs font-medium rounded-lg hover:bg-gray-100 transition-colors"
-                        >
-                            Ignore
-                        </button>
-                    </div>
-                </div>
-            )}
+            {/* Grammar/Tone Hover Bubble - anchored with viewport-aware placement */}
+            {/* Grammar/Tone Hover Bubble - Replaced by PopoverManager */}
 
             {/* Toast with Undo - P0 Spec */}
             {toast && (
@@ -1147,7 +1331,7 @@ const Editor = () => {
                 docId="current-doc"
                 onApply={async (id) => {
                     try {
-                        const response = await fetch('http://localhost:8000/api/recommendations/apply', {
+                        const response = await fetch(trinkaApi('/api/recommendations/apply'), {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -1161,7 +1345,7 @@ const Editor = () => {
                             const suggestion = topSuggestions.find(s => s.id === id)
                             if (suggestion) {
                                 showToast(`Applied: ${suggestion.title}. Undo`, async () => {
-                                    await fetch('http://localhost:8000/api/recommendations/undo', {
+                                    await fetch(trinkaApi('/api/recommendations/undo'), {
                                         method: 'POST',
                                         headers: { 'Content-Type': 'application/json' },
                                         body: JSON.stringify({
@@ -1180,7 +1364,7 @@ const Editor = () => {
                 }}
                 onDismiss={async (id) => {
                     try {
-                        await fetch('http://localhost:8000/api/recommendations/dismiss', {
+                        await fetch(trinkaApi('/api/recommendations/dismiss'), {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -1198,6 +1382,12 @@ const Editor = () => {
                     // TODO: Open preview modal with diff view
                     console.log('Preview:', rec.id)
                 }}
+            />
+            <GoalsModal
+                isOpen={showGoalsModal}
+                onClose={() => setShowGoalsModal(false)}
+                initialGoals={goals}
+                onSave={handleSaveGoals}
             />
         </div>
     )

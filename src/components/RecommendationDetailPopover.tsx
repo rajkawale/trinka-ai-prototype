@@ -1,12 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { X, Eye, Check, XCircle, HelpCircle } from 'lucide-react'
+import { useState } from 'react'
+import { X, Trash2, MoreHorizontal, ArrowRight } from 'lucide-react'
 import type { Recommendation } from './RecommendationCard'
+import { trinkaApi, cn } from '../lib/utils'
 
 interface RecommendationDetailPopoverProps {
     recommendation: Recommendation
     docId: string
-    anchorElement: HTMLElement
     onClose: () => void
     onApply?: (recommendationId: string) => void
     onDismiss?: (recommendationId: string) => void
@@ -15,128 +14,14 @@ interface RecommendationDetailPopoverProps {
 const RecommendationDetailPopover = ({
     recommendation,
     docId,
-    anchorElement,
     onClose,
     onApply,
     onDismiss
 }: RecommendationDetailPopoverProps) => {
-    const popoverRef = useRef<HTMLDivElement>(null)
-    const previewButtonRef = useRef<HTMLButtonElement>(null)
-    const [showHelpTooltip, setShowHelpTooltip] = useState(false)
-    const [position, setPosition] = useState<{ top: number; left: number; placement: string }>({ top: 0, left: 0, placement: 'top-start' })
-
-    // Calculate position with Popper-like logic
-    useEffect(() => {
-        if (!popoverRef.current || !anchorElement) return
-
-        const updatePosition = () => {
-            const anchorRect = anchorElement.getBoundingClientRect()
-            const popover = popoverRef.current
-            if (!popover) return
-
-            const popoverRect = popover.getBoundingClientRect()
-            const viewportWidth = window.innerWidth
-            const viewportHeight = window.innerHeight
-            const padding = 8
-
-            // Preferred: top-start
-            let top = anchorRect.top - popoverRect.height - 12
-            let left = anchorRect.left
-            let placement = 'top-start'
-
-            // Check if top doesn't fit, try top-end
-            if (top < padding) {
-                top = anchorRect.top - popoverRect.height - 12
-                left = anchorRect.right - popoverRect.width
-                placement = 'top-end'
-            }
-
-            // If still doesn't fit, try bottom-start
-            if (top < padding) {
-                top = anchorRect.bottom + 12
-                left = anchorRect.left
-                placement = 'bottom-start'
-            }
-
-            // If still doesn't fit, try bottom-end
-            if (top + popoverRect.height > viewportHeight - padding) {
-                top = anchorRect.bottom + 12
-                left = anchorRect.right - popoverRect.width
-                placement = 'bottom-end'
-            }
-
-            // Prevent overflow with preventOverflow modifier
-            if (left < padding) {
-                left = padding
-            }
-            if (left + popoverRect.width > viewportWidth - padding) {
-                left = viewportWidth - popoverRect.width - padding
-            }
-            if (top < padding) {
-                top = padding
-            }
-            if (top + popoverRect.height > viewportHeight - padding) {
-                top = viewportHeight - popoverRect.height - padding
-            }
-
-            setPosition({ top, left, placement })
-        }
-
-        updatePosition()
-        window.addEventListener('resize', updatePosition)
-        window.addEventListener('scroll', updatePosition, true)
-
-        return () => {
-            window.removeEventListener('resize', updatePosition)
-            window.removeEventListener('scroll', updatePosition, true)
-        }
-    }, [anchorElement])
-
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (popoverRef.current && !popoverRef.current.contains(event.target as Node) && 
-                !anchorElement.contains(event.target as Node)) {
-                onClose()
-            }
-        }
-
-        const handleEscape = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') {
-                // Return focus to anchor element
-                if (anchorElement instanceof HTMLElement) {
-                    anchorElement.focus()
-                }
-                onClose()
-            }
-        }
-
-        document.addEventListener('mousedown', handleClickOutside)
-        document.addEventListener('keydown', handleEscape)
-
-        // Focus Preview button on open
-        setTimeout(() => {
-            previewButtonRef.current?.focus()
-        }, 100)
-
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside)
-            document.removeEventListener('keydown', handleEscape)
-        }
-    }, [onClose, anchorElement])
-
-    const handlePreview = () => {
-        // Emit telemetry
-        if (typeof window !== 'undefined' && (window as any).analytics) {
-            (window as any).analytics.track('rec.preview', {
-                docId,
-                recommendationId: recommendation.id
-            })
-        }
-        // TODO: Open preview modal with diff view
-        onClose()
-    }
+    const [isApplying, setIsApplying] = useState(false)
 
     const handleApply = async () => {
+        setIsApplying(true)
         try {
             // Emit telemetry
             if (typeof window !== 'undefined' && (window as any).analytics) {
@@ -147,11 +32,11 @@ const RecommendationDetailPopover = ({
                 })
             }
 
-            const response = await fetch('/api/recommendations/apply', {
+            const response = await fetch(trinkaApi('/api/recommendations/apply'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    userId: 'current-user', // TODO: Get from auth context
+                    userId: 'current-user',
                     docId,
                     recommendationId: recommendation.id
                 })
@@ -162,22 +47,17 @@ const RecommendationDetailPopover = ({
                 if (onApply) {
                     onApply(recommendation.id)
                 }
-                // Show toast with undo
-                // TODO: Implement toast system
                 onClose()
-            } else {
-                // Show error toast
-                alert('Action failed. Try again')
             }
         } catch (error) {
             console.error('Apply failed:', error)
-            alert('Action failed. Try again')
+        } finally {
+            setIsApplying(false)
         }
     }
 
     const handleDismiss = async () => {
         try {
-            // Emit telemetry
             if (typeof window !== 'undefined' && (window as any).analytics) {
                 (window as any).analytics.track('rec.dismiss', {
                     docId,
@@ -185,11 +65,11 @@ const RecommendationDetailPopover = ({
                 })
             }
 
-            const response = await fetch('http://localhost:8000/api/recommendations/dismiss', {
+            const response = await fetch(trinkaApi('/api/recommendations/dismiss'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    userId: 'current-user', // TODO: Get from auth context
+                    userId: 'current-user',
                     docId,
                     recommendationId: recommendation.id
                 })
@@ -204,90 +84,81 @@ const RecommendationDetailPopover = ({
         }
     }
 
-    const popoverContent = (
+    const actionColor = recommendation.actionType === 'rewrite' || recommendation.actionType === 'tighten'
+        ? 'text-purple-600 bg-purple-50'
+        : 'text-blue-600 bg-blue-50'
+
+    return (
         <div
-            ref={popoverRef}
-            className="fixed w-[360px] max-w-[360px] bg-white border border-gray-200 rounded-lg shadow-lg p-4 animate-in fade-in slide-in-from-top-2"
-            style={{
-                top: `${position.top}px`,
-                left: `${position.left}px`,
-                zIndex: 1400
-            }}
+            className="w-[340px] bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-gray-200/60 ring-1 ring-black/5 overflow-hidden font-sans animate-in fade-in zoom-in-95 duration-200"
             role="dialog"
-            aria-labelledby="recommendation-title"
-            aria-modal="true"
+            aria-labelledby="rec-title"
         >
-            <div className="flex items-start justify-between mb-3">
-                <h3 id="recommendation-title" className="text-[14px] font-semibold text-gray-800 flex-1">
-                    {recommendation.title}
-                </h3>
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100/80 bg-gray-50/50">
+                <div className="flex items-center gap-2">
+                    <span className={cn("text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full", actionColor)}>
+                        {recommendation.actionType}
+                    </span>
+                    {recommendation.estimatedImpact === 'high' && (
+                        <span className="text-[10px] font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                            High Impact
+                        </span>
+                    )}
+                </div>
                 <button
                     onClick={onClose}
-                    className="p-1 hover:bg-gray-100 rounded transition-colors text-gray-400"
-                    aria-label="Close"
+                    className="text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-200/50 transition-colors"
                 >
-                    <X className="w-4 h-4" />
+                    <X size={14} />
                 </button>
             </div>
 
-            <p className="text-[13px] text-gray-700 mb-3 leading-relaxed">
-                {recommendation.fullText}
-            </p>
-
-            <div className="text-[11px] text-gray-500 mb-4">
-                Impact: {recommendation.estimatedImpact.charAt(0).toUpperCase() + recommendation.estimatedImpact.slice(1)}
-            </div>
-
-            <div className="flex items-center gap-2 mb-4">
-                <button
-                    ref={previewButtonRef}
-                    onClick={handlePreview}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                    aria-label="Preview suggestion"
-                >
-                    <Eye className="w-3.5 h-3.5" />
-                    Preview
-                </button>
-                <button
-                    onClick={handleApply}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium text-white bg-[#6B46FF] hover:bg-[#6B46FF]/90 rounded-lg transition-colors"
-                    aria-label="Apply suggestion"
-                >
-                    <Check className="w-3.5 h-3.5" />
-                    Apply
-                </button>
-                <button
-                    onClick={handleDismiss}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                    aria-label="Dismiss suggestion"
-                >
-                    <XCircle className="w-3.5 h-3.5" />
-                    Dismiss
-                </button>
-            </div>
-
-            <div className="relative">
-                <button
-                    onClick={() => setShowHelpTooltip(!showHelpTooltip)}
-                    className="text-[12px] text-[#6B46FF] hover:text-[#6B46FF]/80 transition-colors flex items-center gap-1"
-                    aria-label="Why this suggestion?"
-                >
-                    <HelpCircle className="w-3.5 h-3.5" />
-                    Why this suggestion?
-                </button>
-                {showHelpTooltip && (
-                    <div className="absolute bottom-full left-0 mb-2 w-64 p-2 bg-gray-900 text-white text-[12px] rounded-lg shadow-lg z-10">
-                        This suggestion is based on readability analysis, tone consistency, and academic writing best practices.
+            {/* Content */}
+            <div className="p-4">
+                {recommendation.originalText && (
+                    <div className="mb-3 flex items-center gap-2 text-[13px] text-gray-400">
+                        <span className="line-through decoration-gray-300 decoration-1">{recommendation.originalText}</span>
+                        <ArrowRight size={12} className="text-gray-300 flex-shrink-0" />
                     </div>
                 )}
+
+                <div className="text-[15px] font-medium text-gray-900 leading-relaxed">
+                    {recommendation.summary}
+                </div>
+
+                <div className="mt-2 text-[12px] text-gray-500">
+                    {recommendation.fullText}
+                </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center gap-2 px-4 pb-4 pt-1">
+                <button
+                    onClick={handleApply}
+                    disabled={isApplying}
+                    className="flex-1 bg-[#6B46FF] hover:bg-[#5a37e6] text-white text-[13px] font-medium py-2 px-4 rounded-lg transition-all shadow-sm hover:shadow active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                    {isApplying ? 'Applying...' : 'Accept'}
+                </button>
+
+                <button
+                    onClick={handleDismiss}
+                    className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                    title="Dismiss"
+                >
+                    <Trash2 size={16} />
+                </button>
+
+                <button
+                    className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                    title="More options"
+                >
+                    <MoreHorizontal size={16} />
+                </button>
             </div>
         </div>
     )
-
-    // Render via portal to document.body
-    return typeof document !== 'undefined' 
-        ? createPortal(popoverContent, document.body)
-        : null
 }
 
 export default RecommendationDetailPopover

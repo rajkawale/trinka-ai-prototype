@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Send, User, ChevronLeft, X, ThumbsUp, ThumbsDown, Copy, RotateCcw, Upload, Mic, Plus, FileText, Sparkles, Type, ChevronDown, EyeOff } from 'lucide-react'
-import { cn } from '../lib/utils'
+import { cn, trinkaApi } from '../lib/utils'
 import RecommendationCard from './RecommendationCard'
 import type { Recommendation } from './RecommendationCard'
 
@@ -73,7 +73,7 @@ const Copilot = ({
         const userId = 'current-user' // TODO: Get from auth context
         const storageKey = `trinka.recsVisible.${userId}.${docId}`
         // Try to load from server first, then local storage
-        fetch(`http://localhost:8000/api/user-settings?userId=${userId}&docId=${docId}`)
+        fetch(trinkaApi(`/api/user-settings?userId=${userId}&docId=${docId}`))
             .then(res => res.json())
             .then(data => {
                 if (data.settings?.recommendationsVisible !== undefined) {
@@ -98,7 +98,7 @@ const Copilot = ({
     const fetchRecommendations = async (limit = 5, offset = 0) => {
         setRecommendationsLoading(true)
         try {
-            const response = await fetch(`http://localhost:8000/api/recommendations?docId=${docId}&limit=${limit}&offset=${offset}`)
+            const response = await fetch(trinkaApi(`/api/recommendations?docId=${docId}&limit=${limit}&offset=${offset}`))
             if (response.ok) {
                 const data = await response.json()
                 const filtered = data.items.filter((r: Recommendation) => !dismissedRecommendations.has(r.id))
@@ -138,7 +138,7 @@ const Copilot = ({
 
     const handleApplyRecommendation = async (recommendationId: string) => {
         try {
-            const response = await fetch('http://localhost:8000/api/recommendations/apply', {
+            const response = await fetch(trinkaApi('/api/recommendations/apply'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -176,7 +176,7 @@ const Copilot = ({
 
     const handleDismissRecommendation = async (recommendationId: string) => {
         try {
-            await fetch('http://localhost:8000/api/recommendations/dismiss', {
+            await fetch(trinkaApi('/api/recommendations/dismiss'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -283,7 +283,7 @@ const Copilot = ({
         localStorage.setItem(storageKey, String(newState))
         
         // Sync to server
-        fetch('http://localhost:8000/api/user-settings', {
+        fetch(trinkaApi('/api/user-settings'), {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -329,7 +329,7 @@ const Copilot = ({
         requestStartTime.current = Date.now()
 
         try {
-            const response = await fetch('http://localhost:8000/chat', {
+            const response = await fetch(trinkaApi('/chat'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
