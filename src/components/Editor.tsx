@@ -451,8 +451,31 @@ const Editor = () => {
                                 const fromPos = parseInt(from)
                                 const toPos = parseInt(to)
                                 if (!isNaN(fromPos) && !isNaN(toPos)) {
-                                    editor.chain().focus().setTextSelection({ from: fromPos, to: toPos }).insertContent(suggestion).run()
-                                    console.log('trinka:suggestion_accepted', { id: recommendation.id, suggestion })
+                                    // Transactional apply
+                                    editor.chain()
+                                        .focus()
+                                        .setTextSelection({ from: fromPos, to: toPos })
+                                        .insertContent(suggestion)
+                                        .run()
+
+                                    // Update state
+                                    setRevisionCount(prev => prev + 1)
+
+                                    // Log
+                                    console.debug('trinka:suggestion_apply', {
+                                        id: recommendation.id,
+                                        selectionHash: `${docId}-${recommendation.originalText}`,
+                                        suggestion
+                                    })
+
+                                    // Update word count immediately
+                                    const plainText = editor.state.doc.textBetween(0, editor.state.doc.content.size, ' ')
+                                    const words = plainText.trim().split(/\s+/).filter(Boolean).length
+                                    console.debug('trinka:wordcount', words)
+
+                                    showToast('Suggestion applied')
+                                } else {
+                                    showToast('Selection lost. Select text and try again.')
                                 }
                             }
                             closePopover()
