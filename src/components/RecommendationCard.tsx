@@ -2,7 +2,7 @@ import { usePopover } from './PopoverManager'
 import { cn } from '../lib/utils'
 import RecommendationDetailPopover from './RecommendationDetailPopover'
 
-export type ActionType = 'rewrite' | 'paraphrase' | 'summarize' | 'tighten' | 'cite' | 'expand' | 'tone'
+export type ActionType = 'rewrite' | 'paraphrase' | 'summarize' | 'tighten' | 'cite' | 'expand' | 'tone' | 'clarify' | 'smart'
 export type EstimatedImpact = 'low' | 'medium' | 'high'
 
 export interface Recommendation {
