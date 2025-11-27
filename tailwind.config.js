@@ -40,6 +40,18 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        // Trinka AI Official Brand Colors
+        trinka: {
+          purple: '#6C2BD9',
+          'purple-hover': '#5835FF',
+          'gradient-start': '#A93AFF',
+          'gradient-end': '#FF81D0',
+          yellow: '#FECF43',
+          'light-bg': '#F6E8FF',
+          'bg-faint': '#FAF7FF',
+          dark: '#1A1A1A',
+          secondary: '#4A4A4A',
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

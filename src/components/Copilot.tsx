@@ -459,7 +459,7 @@ const Copilot = ({
                         ) : (
                             <button
                                 onClick={toggleRecommendations}
-                                className="flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-medium text-[#6B46FF] bg-[#6B46FF]/10 hover:bg-[#6B46FF]/20 rounded-full transition-colors"
+                                className="flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-medium text-[#6C2BD9] bg-[#6C2BD9]/10 hover:bg-[#6C2BD9]/20 rounded-full transition-colors"
                                 aria-pressed="false"
                                 aria-label="Show recommendations"
                             >
@@ -483,7 +483,7 @@ const Copilot = ({
                 {status === 'streaming' && (
                     <div className="h-0.5 bg-gray-200 rounded-full overflow-hidden mt-2">
                         <div 
-                            className="h-full bg-[#6B46FF] transition-all duration-300"
+                            className="h-full bg-[#6C2BD9] transition-all duration-300"
                             style={{ width: `${streamingProgress}%` }}
                         />
                     </div>
@@ -505,7 +505,7 @@ const Copilot = ({
                                 <p className="text-[13px] text-gray-600 mb-2">Recommendations unavailable. Retry</p>
                                 <button
                                     onClick={() => fetchRecommendations(recommendationsExpanded ? 15 : 5)}
-                                    className="text-[12px] text-[#6B46FF] hover:text-[#6B46FF]/80 font-medium"
+                                    className="text-[12px] text-[#6C2BD9] hover:text-[#6C2BD9]/80 font-medium"
                                 >
                                     Retry
                                 </button>
@@ -526,7 +526,7 @@ const Copilot = ({
                                 {recommendations.length > 5 && (
                                     <button
                                         onClick={handleShowMore}
-                                        className="text-[12px] text-[#6B46FF] hover:text-[#6B46FF]/80 font-medium transition-colors"
+                                        className="text-[12px] text-[#6C2BD9] hover:text-[#6C2BD9]/80 font-medium transition-colors"
                                     >
                                         {recommendationsExpanded ? 'Show less' : 'Show more'}
                                     </button>
@@ -564,8 +564,8 @@ const Copilot = ({
                             <div className={cn(
                                 "px-3.5 py-2.5 rounded-xl max-w-[85%] relative",
                                 message.role === 'user'
-                                    ? "bg-[#6B46FF] text-white rounded-tr-none ml-auto"
-                                    : "bg-gray-100 text-gray-800 rounded-tl-none border-l-2 border-[#6B46FF]"
+                                    ? "bg-[#6C2BD9] text-white rounded-tr-none ml-auto"
+                                    : "bg-gray-100 text-gray-800 rounded-tl-none border-l-2 border-[#6C2BD9]"
                             )}>
                                 {message.content}
                             </div>
@@ -614,7 +614,7 @@ const Copilot = ({
                     <div className="space-y-2">
                         <div className="flex gap-2.5 text-[13px]">
                             <div className="flex-1">
-                                <div className="px-3.5 py-2.5 rounded-xl rounded-tl-none bg-gray-100 text-gray-800 border-l-2 border-[#6B46FF]">
+                                <div className="px-3.5 py-2.5 rounded-xl rounded-tl-none bg-gray-100 text-gray-800 border-l-2 border-[#6C2BD9]">
                                     {clarifyingQuestion}
                                 </div>
                             </div>
@@ -637,7 +637,7 @@ const Copilot = ({
                 {/* Loading Indicator */}
                 {isLoading && (
                     <div className="flex gap-2.5 text-[13px]">
-                        <div className="bg-gray-100 px-3.5 py-2.5 rounded-xl rounded-tl-none border-l-2 border-[#6B46FF]">
+                        <div className="bg-gray-100 px-3.5 py-2.5 rounded-xl rounded-tl-none border-l-2 border-[#6C2BD9]">
                             <div className="flex gap-1">
                                 <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" />
                                 <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:0.2s]" />
@@ -691,7 +691,7 @@ const Copilot = ({
                             }
                         }}
                         placeholder="Message Copilot or @ mention a tab"
-                        className="flex-1 pl-3.5 pr-20 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#6B46FF]/20 focus:border-[#6B46FF] transition-all text-[13px]"
+                        className="flex-1 pl-3.5 pr-20 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#6C2BD9]/20 focus:border-[#6C2BD9] transition-all text-[13px]"
                         aria-label="Chat input"
                     />
 
@@ -699,7 +699,7 @@ const Copilot = ({
                     <button
                         type="submit"
                         disabled={!input.trim() || isLoading}
-                        className="absolute right-12 p-1.5 text-gray-400 hover:text-[#6B46FF] disabled:opacity-50 disabled:hover:text-gray-400 transition-colors"
+                        className="absolute right-12 p-1.5 text-gray-400 hover:text-[#6C2BD9] disabled:opacity-50 disabled:hover:text-gray-400 transition-colors"
                         title="Send (Ctrl/Cmd + Enter)"
                         aria-label="Send message"
                     >
@@ -742,7 +742,7 @@ const Copilot = ({
                             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-[12px] font-medium text-gray-700 transition-colors"
                             title="Select model (M)"
                         >
-                            <Sparkles className="w-3.5 h-3.5 text-[#6B46FF]" />
+                            <Sparkles className="w-3.5 h-3.5 text-[#6C2BD9]" />
                             <span>{selectedModel}</span>
                             <ChevronDown className="w-3 h-3" />
                         </button>
@@ -758,7 +758,7 @@ const Copilot = ({
                                         }}
                                         className={cn(
                                             "w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 rounded",
-                                            selectedModel === model && "bg-[#6B46FF]/10 text-[#6B46FF]"
+                                            selectedModel === model && "bg-[#6C2BD9]/10 text-[#6C2BD9]"
                                         )}
                                     >
                                         {model}
@@ -782,7 +782,7 @@ const Copilot = ({
                             )}
                             title="Select tone (M)"
                         >
-                            <Type className="w-3.5 h-3.5 text-[#6B46FF]" />
+                            <Type className="w-3.5 h-3.5 text-[#6C2BD9]" />
                             <span>{selectedTone}</span>
                             <ChevronDown className="w-3 h-3" />
                         </button>
@@ -798,7 +798,7 @@ const Copilot = ({
                                         }}
                                         className={cn(
                                             "w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 rounded",
-                                            selectedTone === tone && "bg-[#6B46FF]/10 text-[#6B46FF]"
+                                            selectedTone === tone && "bg-[#6C2BD9]/10 text-[#6C2BD9]"
                                         )}
                                     >
                                         {tone}
@@ -824,7 +824,7 @@ const Copilot = ({
                             </button>
                         </div>
                         <div
-                            className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-[#6B46FF] transition-colors cursor-pointer"
+                            className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-[#6C2BD9] transition-colors cursor-pointer"
                             onDrop={(e) => {
                                 e.preventDefault()
                                 handleFileUpload(e.dataTransfer.files)
@@ -834,7 +834,7 @@ const Copilot = ({
                             <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                             <p className="text-gray-600 mb-2">Drag and drop files here</p>
                             <p className="text-sm text-gray-400 mb-4">or</p>
-                            <label className="inline-block px-4 py-2 bg-[#6B46FF] text-white rounded-lg cursor-pointer hover:bg-[#6B46FF]/90 transition-colors">
+                            <label className="inline-block px-4 py-2 bg-[#6C2BD9] text-white rounded-lg cursor-pointer hover:bg-[#6C2BD9]/90 transition-colors">
                                 Browse Files
                                 <input
                                     type="file"

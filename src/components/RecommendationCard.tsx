@@ -11,6 +11,7 @@ export interface Recommendation {
     summary: string
     fullText: string
     originalText?: string
+    replacementText?: string
     actionType: ActionType
     estimatedImpact: EstimatedImpact
     previewPatch?: any
@@ -45,8 +46,8 @@ const RecommendationCard = ({ recommendation, docId, onApply, onDismiss }: Recom
         <button
             onClick={handleClick}
             className={cn(
-                "w-full text-left p-3 rounded-lg hover:bg-gray-50 transition-all group border border-gray-100 hover:border-[#6B46FF]/20 hover:shadow-sm min-h-[56px]",
-                "focus:outline-none focus:ring-2 focus:ring-[#6B46FF]/20"
+                "w-full text-left p-3 rounded-lg hover:bg-gray-50 transition-all group border border-gray-100 hover:border-[#6C2BD9]/20 hover:shadow-sm min-h-[56px]",
+                "focus:outline-none focus:ring-2 focus:ring-[#6C2BD9]/20"
             )}
             aria-label={`${recommendation.title}. Open details`}
         >

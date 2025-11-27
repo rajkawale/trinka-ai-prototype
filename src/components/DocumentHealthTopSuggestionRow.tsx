@@ -5,14 +5,7 @@ import type { Recommendation } from './RecommendationCard'
 import { usePopover } from './PopoverManager'
 
 interface DocumentHealthTopSuggestionRowProps {
-    suggestion: {
-        id: string
-        title: string
-        summary: string
-        fullText: string
-        actionType: Recommendation['actionType']
-        estimatedImpact: Recommendation['estimatedImpact']
-    }
+    suggestion: Recommendation
     docId: string
     onApply?: (suggestionId: string) => void
     onDismiss?: (suggestionId: string) => void
@@ -36,19 +29,10 @@ const DocumentHealthTopSuggestionRow = ({
             })
         }
 
-        const recommendation: Recommendation = {
-            id: suggestion.id,
-            title: suggestion.title,
-            summary: suggestion.summary,
-            fullText: suggestion.fullText,
-            actionType: suggestion.actionType,
-            estimatedImpact: suggestion.estimatedImpact
-        }
-
         if (rowRef.current) {
             openPopover(rowRef.current, (
                 <RecommendationDetailPopover
-                    recommendation={recommendation}
+                    recommendation={suggestion}
                     docId={docId}
                     onClose={closePopover}
                     onApply={onApply}
@@ -67,7 +51,7 @@ const DocumentHealthTopSuggestionRow = ({
             onClick={handleClick}
             className={cn(
                 "w-full text-left px-2 py-1 text-[12px] text-gray-700 hover:bg-gray-50 rounded transition-colors",
-                "focus:outline-none focus:ring-2 focus:ring-[#6B46FF]/20 min-h-[44px] flex items-center"
+                "focus:outline-none focus:ring-2 focus:ring-[#6C2BD9]/20 min-h-[44px] flex items-center"
             )}
             aria-label={`${suggestion.title}. Open details`}
         >

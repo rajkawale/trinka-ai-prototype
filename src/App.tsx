@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import Editor from './components/Editor'
 import Copilot from './components/Copilot'
-import { Menu, History, RotateCcw, Eye, Copy, X, User as UserIcon, Settings, MessageSquare, HelpCircle, Sparkles } from 'lucide-react'
+import { Menu, History, RotateCcw, Eye, Copy, X, User as UserIcon, Settings, MessageSquare, HelpCircle } from 'lucide-react'
 import { cn, trinkaApi } from './lib/utils'
-import { useFeatureFlags } from './contexts/FeatureFlagContext'
+
 
 function App() {
-  const { features, toggleFeature } = useFeatureFlags()
   const [isCopilotCompact, setIsCopilotCompact] = useState(false)
   const [windowWidth, setWindowWidth] = useState(window.innerWidth)
   const [hasSelection] = useState(false)
@@ -16,10 +15,17 @@ function App() {
   const [versionHistory, setVersionHistory] = useState<any[]>([])
   const [showChat, setShowChat] = useState(true)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
-  const [documentTitle, setDocumentTitle] = useState('Untitled document')
+  const [documentTitle, setDocumentTitle] = useState(() => {
+    return localStorage.getItem('trinka-document-title') || 'Untitled document'
+  })
   const menuRef = useRef<HTMLDivElement>(null)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const profileMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    localStorage.setItem('trinka-document-title', documentTitle)
+    document.title = `${documentTitle} - Trinka AI`
+  }, [documentTitle])
 
   useEffect(() => {
     const handleResize = () => {
@@ -92,28 +98,14 @@ function App() {
               aria-label="Trinka home"
               id="brand-logo"
             >
-              <div className="w-8 h-8 bg-[#6B46FF] rounded-lg flex items-center justify-center text-white shadow-sm shadow-purple-200">
-                <Sparkles className="w-5 h-5 fill-white" />
-              </div>
-              <h1 className="font-semibold text-gray-900 text-lg tracking-tight">Trinca AI</h1>
-              <span className="px-2 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-bold uppercase tracking-wider rounded-full border border-purple-100">Prototype</span>
+              <img
+                src="/assets/branding/trinka-logo.svg"
+                alt="Trinka AI"
+                className="h-8"
+              />
             </a>
 
-            {/* Dev Toggle */}
-            {import.meta.env.DEV && (
-              <button
-                onClick={() => toggleFeature('trinkaPopoverV2')}
-                className={cn(
-                  "ml-2 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full border transition-colors",
-                  features.trinkaPopoverV2
-                    ? "bg-green-100 text-green-700 border-green-200"
-                    : "bg-gray-100 text-gray-500 border-gray-200"
-                )}
-                title="Toggle V2 Features"
-              >
-                V2: {features.trinkaPopoverV2 ? 'ON' : 'OFF'}
-              </button>
-            )}
+
 
             {/* Hamburger Menu */}
             <div className="relative" ref={menuRef}>
@@ -184,8 +176,10 @@ function App() {
                 type="text"
                 value={documentTitle}
                 onChange={(e) => setDocumentTitle(e.target.value)}
-                className="bg-transparent border border-transparent hover:border-gray-200 focus:border-gray-300 focus:ring-0 rounded px-2 py-1 text-sm text-gray-800 min-w-[180px] max-w-[260px] truncate outline-none"
+                maxLength={120}
+                className="bg-transparent border border-transparent hover:border-gray-200 focus:border-gray-300 focus:ring-0 rounded px-2 py-1 text-sm text-gray-800 min-w-[180px] max-w-[260px] truncate outline-none transition-colors"
                 aria-label="Document title"
+                placeholder="Untitled document"
               />
             </div>
           </div>
@@ -197,7 +191,7 @@ function App() {
             {/* Chat Button */}
             <button
               onClick={() => setShowChat(!showChat)}
-              className="px-4 py-1.5 bg-[#6B46FF] text-white text-sm font-medium rounded-lg hover:bg-[#6B46FF]/90 transition-colors shadow-sm"
+              className="px-4 py-1.5 bg-[#6C2BD9] text-white text-sm font-medium rounded-lg hover:bg-[#6C2BD9]/90 transition-colors shadow-sm"
               id="chat-button"
             >
               Chat
@@ -206,7 +200,7 @@ function App() {
             <div className="relative" ref={profileMenuRef}>
               <button
                 onClick={() => setShowProfileMenu(!showProfileMenu)}
-                className="w-8 h-8 rounded-full bg-[#6B46FF] text-white flex items-center justify-center hover:bg-[#6B46FF]/90 transition-colors border-2 border-[#6B46FF]"
+                className="w-8 h-8 rounded-full bg-[#6C2BD9] text-white flex items-center justify-center hover:bg-[#6C2BD9]/90 transition-colors border-2 border-[#6C2BD9]"
                 aria-label="Profile menu"
                 id="user-profile-button"
               >
@@ -348,7 +342,7 @@ function App() {
                       <div className="flex items-center gap-2 mt-3">
                         <button
                           onClick={() => handleRestoreVersion(snapshot.id)}
-                          className="flex items-center gap-1 px-3 py-1.5 text-xs text-[#6B46FF] hover:bg-[#6B46FF]/10 rounded transition-colors"
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs text-[#6C2BD9] hover:bg-[#6C2BD9]/10 rounded transition-colors"
                         >
                           <RotateCcw className="w-3.5 h-3.5" />
                           Restore

@@ -10,6 +10,7 @@ interface RecommendationListPopoverProps {
     onClose: () => void
     onApply?: (recommendationId: string) => void
     onDismiss?: (recommendationId: string) => void
+    onShowToast?: (message: string) => void
 }
 
 const RecommendationListPopover = ({
@@ -17,7 +18,8 @@ const RecommendationListPopover = ({
     docId,
     onClose,
     onApply,
-    onDismiss
+    onDismiss,
+    onShowToast
 }: RecommendationListPopoverProps) => {
     const [selectedId, setSelectedId] = useState<string | null>(null)
     const [showAll, setShowAll] = useState(false)
@@ -39,6 +41,7 @@ const RecommendationListPopover = ({
                 }}
                 onApply={onApply}
                 onDismiss={onDismiss}
+                onShowToast={onShowToast}
             />
         )
     }

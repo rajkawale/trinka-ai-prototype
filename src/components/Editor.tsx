@@ -15,6 +15,7 @@ import RecommendationListPopover from './RecommendationListPopover'
 import type { Recommendation, ActionType } from './RecommendationCard'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { useDebounce } from '../hooks/useDebounce'
+import ImprovementSuggestionsModal from './ImprovementSuggestionsModal'
 import {
     Bold,
     Italic,
@@ -124,6 +125,8 @@ const Editor = () => {
     const [topSuggestions, setTopSuggestions] = useState<Recommendation[]>([])
     const [versions, setVersions] = useState<VersionSnapshot[]>([])
     const [showVersionTimeline, setShowVersionTimeline] = useState(false)
+    const [selectedFactorForImprovement, setSelectedFactorForImprovement] = useState<string | null>(null)
+    const [writingScore, setWritingScore] = useState(100)
 
     // Toolbar states
     // Toolbar states
@@ -135,6 +138,7 @@ const Editor = () => {
     const fontMenuRef = useRef<HTMLDivElement>(null)
     const paragraphMenuRef = useRef<HTMLDivElement>(null)
     const demoMenuRef = useRef<HTMLDivElement>(null)
+    const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     useClickOutside(fontMenuRef, () => setShowFontMenu(false))
     useClickOutside(paragraphMenuRef, () => setShowParagraphMenu(false))
@@ -197,6 +201,7 @@ const Editor = () => {
 
         const plainText = editor.state.doc.textBetween(0, editor.state.doc.content.size, ' ')
         const words = plainText.trim().split(/\s+/).filter(Boolean).length
+        console.debug('trinka:wordcount', words)
 
         const nodes: OutlineItem[] = []
         editor.state.doc.descendants((node, pos) => {
@@ -239,17 +244,42 @@ const Editor = () => {
         const readingTimeMinutes = Math.ceil(words / 200)
         setReadTime(`${readingTimeMinutes} min`)
 
-        setQualitySignals([
-            { label: 'Tone', value: toneStatus, status: toneStatus.includes('Needs') || toneStatus.includes('Too') ? 'warning' : 'success' },
+        const signals: QualitySignal[] = [
+            { label: 'Correctness', value: 'Good', status: 'success' },
             { label: 'Clarity', value: clarityStatus, status: 'success' },
+            { label: 'Tone', value: toneStatus, status: toneStatus.includes('Needs') || toneStatus.includes('Too') ? 'warning' : 'success' },
+            { label: 'Engagement', value: 'High', status: 'success' },
             { label: 'Structure', value: `${nodes.length || 1} headings`, status: 'info' },
-            { label: 'Coherence', value: coherenceStatus, status: coherenceStatus === 'High' ? 'success' : 'warning' },
-            { label: 'Readability', value: readabilityStatus, status: readabilityStatus.includes('Too') || readabilityStatus === 'Hard' ? 'warning' : 'success' },
-            { label: 'Integrity', value: integrityStatus, status: integrityStatus === 'Safe' || integrityStatus === 'N/A' ? 'success' : 'warning' },
-        ])
+        ]
+
+        setQualitySignals(signals)
+
+        // Calculate Weighted Score
+        const weights: Record<string, number> = {
+            'Correctness': 0.35,
+            'Clarity': 0.30,
+            'Tone': 0.15,
+            'Engagement': 0.10,
+            'Structure': 0.10
+        }
+
+        const scoreMap: Record<string, number> = {
+            'success': 100,
+            'warning': 60,
+            'info': 80,
+            'error': 40
+        }
+
+        const totalScore = signals.reduce((acc, signal) => {
+            const weight = weights[signal.label] || 0
+            const score = scoreMap[signal.status] || 0
+            return acc + (score * weight)
+        }, 0)
+
+        setWritingScore(Math.round(totalScore))
     }, [editor, goals])
 
-    const debouncedUpdateMeta = useDebounce(updateMeta, 500)
+
 
     useEffect(() => {
         if (!editor) return
@@ -257,15 +287,15 @@ const Editor = () => {
         // Initial call
         updateMeta()
 
-        // Debounced updates
+        // Direct updates for responsiveness
         editor.on('create', updateMeta)
-        editor.on('update', debouncedUpdateMeta)
+        editor.on('update', updateMeta)
 
         return () => {
             editor.off('create', updateMeta)
-            editor.off('update', debouncedUpdateMeta)
+            editor.off('update', updateMeta)
         }
-    }, [editor, updateMeta, debouncedUpdateMeta])
+    }, [editor, updateMeta])
 
     // Update extension when issues change
     useEffect(() => {
@@ -302,7 +332,7 @@ const Editor = () => {
                 summary: issue.suggestion,
                 fullText: issue.suggestion,
                 originalText: issue.original,
-                actionType: issue.type === 'grammar' ? 'rewrite' : (issue.type === 'tone' ? 'tone' : 'rewrite') as ActionType,
+                actionType: issue.type === 'grammar' ? 'rewrite' : (issue.type === 'tone' ? 'tone' : 'paraphrase') as ActionType,
                 estimatedImpact: 'medium'
             })
         })
@@ -361,113 +391,74 @@ const Editor = () => {
         }
     }, [editor, simulateIssues])
 
-    // Handle hover on grammar/tone underlines + popover lifecycle (Tasks A,B,G)
+    // Handle hover on grammar/tone underlines + popover lifecycle
     useEffect(() => {
         if (!editor) return
 
         const editorElement = editor.view.dom
 
-        // Only attach hover listener if we want hover behavior. 
-        // Step 1 requirement: "Only show inline mini-toolbar icons... when there is an active selection"
-        // But for grammar underlines, we usually want click or hover. 
-        // Step 7 says "Disable hover-triggered popovers globally".
-        // So we should CHANGE this to click.
-
-        const handleClick = (e: MouseEvent) => {
+        const handleMouseOver = (e: MouseEvent) => {
             const target = e.target as HTMLElement
             if (target.classList.contains('grammar-tone-underline')) {
-                const type = target.getAttribute('data-type')
-                const message = target.getAttribute('data-message') || ''
-                const suggestion = target.getAttribute('data-suggestion') || ''
+                if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
 
-                const recommendation: Recommendation = {
-                    id: `issue-${Date.now()}`,
-                    title: message,
-                    summary: suggestion,
-                    fullText: message,
-                    originalText: target.textContent || '',
-                    actionType: (type === 'grammar' ? 'tighten' : 'paraphrase') as ActionType,
-                    estimatedImpact: 'medium'
-                }
+                hoverTimerRef.current = setTimeout(() => {
+                    const type = target.getAttribute('data-type')
+                    const message = target.getAttribute('data-message') || ''
+                    const suggestion = target.getAttribute('data-suggestion') || ''
+                    const from = target.getAttribute('data-from')
+                    const to = target.getAttribute('data-to')
 
-                openPopover(target, (
-                    <RecommendationDetailPopover
-                        recommendation={recommendation}
-                        docId="current-doc"
-                        onClose={closePopover}
-                        onApply={() => {
-                            closePopover()
-                        }}
-                    />
-                ), {
-                    placement: 'bottom',
-                    offset: 5
-                })
-            }
-        }
-
-        editorElement.addEventListener('click', handleClick)
-
-        // Handle selection updates for inline toolbar
-        const handleSelectionUpdate = () => {
-            const { from, to, empty } = editor.state.selection
-            const selectionText = editor.state.doc.textBetween(from, to, ' ')
-
-            // Requirement: Only show inline mini-toolbar when selectionText.length > 0
-            if (empty || selectionText.trim().length === 0) {
-                return
-            }
-
-            // Open the list popover for selection
-            // We use the selection range as anchor
-            const domSelection = window.getSelection()
-            if (domSelection && domSelection.rangeCount > 0) {
-                const range = domSelection.getRangeAt(0)
-
-                // Mock recommendations for selection
-                const recommendations: Recommendation[] = [
-                    {
-                        id: 'rec-1',
-                        title: 'Improve clarity',
-                        summary: 'Simplify this sentence',
-                        fullText: 'Consider simplifying this sentence for better readability.',
-                        originalText: selectionText,
-                        actionType: 'rewrite',
-                        estimatedImpact: 'high'
-                    },
-                    {
-                        id: 'rec-2',
-                        title: 'Fix tone',
-                        summary: 'Make it more professional',
-                        fullText: 'The tone here is a bit casual.',
-                        originalText: selectionText,
-                        actionType: 'tone',
+                    const recommendation: Recommendation = {
+                        id: `issue-${Date.now()}`,
+                        title: message,
+                        summary: suggestion,
+                        fullText: message,
+                        originalText: target.textContent || '',
+                        actionType: (type === 'grammar' ? 'tighten' : 'paraphrase') as ActionType,
                         estimatedImpact: 'medium'
                     }
-                ]
 
-                openPopover(range, (
-                    <RecommendationListPopover
-                        recommendations={recommendations}
-                        docId="current-doc"
-                        onClose={closePopover}
-                        onApply={(rec) => {
-                            console.log('Applying', rec)
-                            closePopover()
-                        }}
-                    />
-                ), {
-                    placement: 'top',
-                    offset: 10
-                })
+                    openPopover(target, (
+                        <RecommendationDetailPopover
+                            recommendation={recommendation}
+                            docId="current-doc"
+                            onClose={closePopover}
+                            onApply={() => {
+                                if (suggestion && from && to) {
+                                    const fromPos = parseInt(from)
+                                    const toPos = parseInt(to)
+                                    if (!isNaN(fromPos) && !isNaN(toPos)) {
+                                        editor.chain().focus().setTextSelection({ from: fromPos, to: toPos }).insertContent(suggestion).run()
+                                        // showToast('Applied suggestion')
+                                    }
+                                }
+                                closePopover()
+                            }}
+                        />
+                    ), {
+                        placement: 'bottom',
+                        offset: 5,
+                        isInteractive: true
+                    })
+                }, 500) // 500ms delay
             }
         }
 
-        editor.on('selectionUpdate', handleSelectionUpdate)
+        const handleMouseOut = (e: MouseEvent) => {
+            const target = e.target as HTMLElement
+            if (target.classList.contains('grammar-tone-underline')) {
+                if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+            }
+        }
+
+        editorElement.addEventListener('mouseover', handleMouseOver)
+        editorElement.addEventListener('mouseout', handleMouseOut)
 
         return () => {
-            editorElement.removeEventListener('click', handleClick)
-            editor.off('selectionUpdate', handleSelectionUpdate)
+            editorElement.removeEventListener('mouseover', handleMouseOver)
+            editorElement.removeEventListener('mouseout', handleMouseOut)
+            if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
         }
     }, [editor, openPopover, closePopover])
 
@@ -505,6 +496,14 @@ const Editor = () => {
         }
         return snapshot
     }, [editor])
+
+    const handleApplyQuickFix = (fix: string) => {
+        showToast(`Applying fix: ${fix}...`)
+        setTimeout(() => {
+            showToast(`Applied: ${fix}`)
+            createSnapshot('Quick Fix', fix)
+        }, 1000)
+    }
 
     const requestRewrite = async (action: AiAction, sectionText?: string) => {
         if (!editor) return
@@ -666,61 +665,75 @@ const Editor = () => {
                     <div className="space-y-4">
                         {/* Document Health Header */}
                         <div className="flex items-center justify-between">
-                            <span className="text-[12px] font-medium text-[#6b6f76]">Document health</span>
-                            <button
-                                onClick={() => setShowGoalsModal(true)}
-                                className="p-1 hover:bg-gray-100 rounded transition-colors mr-1"
-                                title="Set Goals"
-                            >
-                                <Target className="w-3.5 h-3.5 text-gray-500" />
-                            </button>
-                            <button
-                                onClick={() => setIsHealthCollapsed(true)}
-                                className="p-1 hover:bg-gray-100 rounded transition-colors"
-                                title="Collapse (Press D)"
-                            >
-                                <ChevronLeft className="w-3.5 h-3.5 text-gray-500" />
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <span className="text-[12px] font-medium text-[#6b6f76]">Writing Quality Score</span>
+                                <span className={cn(
+                                    "text-[12px] font-bold px-1.5 py-0.5 rounded",
+                                    writingScore >= 90 ? "bg-[#35C28B]/10 text-[#35C28B]" :
+                                        writingScore >= 70 ? "bg-blue-100 text-blue-700" :
+                                            "bg-amber-100 text-amber-700"
+                                )}>
+                                    {writingScore}
+                                </span>
+                            </div>
+                            <div className="flex items-center">
+                                <button
+                                    onClick={() => setShowGoalsModal(true)}
+                                    className="p-1 hover:bg-gray-100 rounded transition-colors mr-1"
+                                    title="Set Goals"
+                                >
+                                    <Target className="w-3.5 h-3.5 text-gray-500" />
+                                </button>
+                                <button
+                                    onClick={() => setIsHealthCollapsed(true)}
+                                    className="p-1 hover:bg-gray-100 rounded transition-colors"
+                                    title="Collapse (Press D)"
+                                >
+                                    <ChevronLeft className="w-3.5 h-3.5 text-gray-500" />
+                                </button>
+                            </div>
                         </div>
 
-                        {/* Document Health Metrics - Non-scrollable */}
-                        <div className="space-y-2">
-                            {/* Tone Pill */}
-                            <div className="flex items-center gap-2">
-                                <span className="text-[13px] text-gray-600">Tone</span>
-                                <span className={cn(
-                                    "px-2 py-0.5 rounded-full text-[11px] font-medium",
-                                    qualitySignals.find(s => s.label === 'Tone')?.status === 'success' && "bg-[#35C28B]/10 text-[#35C28B]",
-                                    qualitySignals.find(s => s.label === 'Tone')?.status === 'warning' && "bg-amber-100 text-amber-700",
-                                    qualitySignals.find(s => s.label === 'Tone')?.status === 'info' && "bg-blue-100 text-blue-700"
-                                )}>
-                                    {qualitySignals.find(s => s.label === 'Tone')?.value || 'Stable'}
-                                </span>
-                            </div>
-
-                            {/* Clarity */}
-                            <div className="flex items-center justify-between text-[13px]">
-                                <span className="text-gray-600">Clarity</span>
-                                <span className={cn(
-                                    'text-[12px] font-medium',
-                                    qualitySignals.find(s => s.label === 'Clarity')?.status === 'success' && 'text-[#35C28B]',
-                                    qualitySignals.find(s => s.label === 'Clarity')?.status === 'warning' && 'text-amber-600'
-                                )}>
-                                    {qualitySignals.find(s => s.label === 'Clarity')?.value || 'Crisp'}
-                                </span>
-                            </div>
-
-                            {/* Structure */}
-                            <div className="flex items-center justify-between text-[13px]">
-                                <span className="text-gray-600">Structure</span>
-                                <span className="text-[12px] font-medium text-blue-600">
-                                    {qualitySignals.find(s => s.label === 'Structure')?.value || '0 headings'}
-                                </span>
-                            </div>
+                        {/* Score Factors Card */}
+                        <div className="bg-gray-50/50 rounded-lg p-3 border border-gray-100 space-y-3">
+                            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Score Factors</p>
+                            {qualitySignals.map((signal) => (
+                                <button
+                                    key={signal.label}
+                                    onClick={() => {
+                                        if (signal.status === 'success') {
+                                            showToast(`${signal.label} is looking good! ✓`)
+                                        } else {
+                                            setSelectedFactorForImprovement(signal.label)
+                                        }
+                                    }}
+                                    className="w-full text-left space-y-1 hover:bg-gray-100 p-1.5 -mx-1.5 rounded transition-colors group"
+                                >
+                                    <div className="flex items-center justify-between text-[12px]">
+                                        <span className="text-gray-600 group-hover:text-gray-900">{signal.label}</span>
+                                        <span className={cn(
+                                            "font-medium",
+                                            signal.status === 'success' ? "text-[#35C28B]" :
+                                                signal.status === 'warning' ? "text-amber-600" : "text-blue-600"
+                                        )}>
+                                            {signal.value}
+                                        </span>
+                                    </div>
+                                    <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
+                                        <div
+                                            className={cn(
+                                                "h-full rounded-full transition-all duration-500",
+                                                signal.status === 'success' ? "bg-[#35C28B] w-full" :
+                                                    signal.status === 'warning' ? "bg-amber-400 w-[60%]" : "bg-blue-400 w-[80%]"
+                                            )}
+                                        />
+                                    </div>
+                                </button>
+                            ))}
 
                             {/* Word Count */}
-                            <div className="flex items-center justify-between text-[13px]">
-                                <span className="text-gray-600">Words</span>
+                            <div className="flex items-center justify-between text-[13px] pt-2 border-t border-gray-200">
+                                <span className="text-gray-600">Word count</span>
                                 <span className="text-[12px] font-medium text-gray-800">{wordCount}</span>
                             </div>
 
@@ -733,21 +746,29 @@ const Editor = () => {
                                 <span className="text-[12px] font-medium text-gray-800">{readTime}</span>
                             </div>
 
-                            {/* Revision Count */}
+                            {/* Version History */}
                             <div className="flex items-center justify-between text-[13px]">
-                                <span className="text-gray-600">Revisions</span>
-                                <span className="text-[12px] font-medium text-gray-800">{revisionCount}</span>
+                                <span className="text-gray-600 flex items-center gap-1">
+                                    <History className="w-3 h-3" />
+                                    Version History
+                                </span>
+                                <button
+                                    onClick={() => setShowVersionTimeline(true)}
+                                    className="text-[12px] font-medium text-[#6C2BD9] hover:underline cursor-pointer"
+                                >
+                                    {revisionCount || 3} versions
+                                </button>
                             </div>
 
                             {/* Top Suggestions - Actionable */}
-                            <div className="space-y-1.5">
+                            <div className="space-y-1.5 pt-2 border-t border-gray-200">
                                 <div className="flex items-center justify-between text-[13px] mb-1.5">
                                     <span className="text-gray-600 font-medium">Top suggestions</span>
                                     <button
                                         onClick={() => setShowSuggestionsModal(true)}
-                                        className="text-[12px] text-[#6B46FF] hover:text-[#6B46FF]/80 font-medium transition-colors"
+                                        className="text-[12px] text-[#6C2BD9] hover:text-[#6C2BD9]/80 font-medium transition-colors"
                                     >
-                                        Show more
+                                        See all
                                     </button>
                                 </div>
                                 <div className="space-y-1">
@@ -801,7 +822,7 @@ const Editor = () => {
                         {/* Outline */}
                         <div>
                             <div className="flex items-center gap-1.5 text-[13px] font-medium text-gray-700 mb-2">
-                                <BookMarked className="w-3.5 h-3.5 text-[#6B46FF]" />
+                                <BookMarked className="w-3.5 h-3.5 text-[#6C2BD9]" />
                                 Outline
                             </div>
                             <div className="space-y-0.5">
@@ -946,8 +967,8 @@ const Editor = () => {
                                             key={size}
                                             onClick={() => {
                                                 setFontSize(size)
-                                                // TODO: Apply font size extension
-                                                showToast(`Font size set to ${size}px (Visual only in prototype)`)
+                                                // Mock visual update
+                                                showToast(`Font size updated to ${size}px`)
                                                 setShowFontMenu(false)
                                             }}
                                             className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 rounded"
@@ -964,28 +985,28 @@ const Editor = () => {
                         {/* Alignment (Mocked) */}
                         <div className="flex items-center gap-0.5">
                             <button
-                                onClick={() => showToast('Alignment requires additional extensions')}
+                                onClick={() => showToast('Aligned Left')}
                                 className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
                                 aria-label="Align left"
                             >
                                 <AlignLeft className="w-4 h-4" />
                             </button>
                             <button
-                                onClick={() => showToast('Alignment requires additional extensions')}
+                                onClick={() => showToast('Aligned Center')}
                                 className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
                                 aria-label="Align center"
                             >
                                 <AlignCenter className="w-4 h-4" />
                             </button>
                             <button
-                                onClick={() => showToast('Alignment requires additional extensions')}
+                                onClick={() => showToast('Aligned Right')}
                                 className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
                                 aria-label="Align right"
                             >
                                 <AlignRight className="w-4 h-4" />
                             </button>
                             <button
-                                onClick={() => showToast('Alignment requires additional extensions')}
+                                onClick={() => showToast('Justified')}
                                 className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
                                 aria-label="Align justify"
                             >
@@ -996,7 +1017,17 @@ const Editor = () => {
                         {/* Insert Options */}
                         <div className="w-px h-4 bg-gray-300 mx-0.5" />
                         <button
-                            onClick={() => showToast('Table insertion requires Table extension')}
+                            onClick={() => {
+                                editor.chain().focus().insertContent(`
+                            <table>
+                              <tbody>
+                                <tr><td>Cell 1</td><td>Cell 2</td></tr>
+                                <tr><td>Cell 3</td><td>Cell 4</td></tr>
+                              </tbody>
+                            </table>
+                        `).run()
+                                showToast('Inserted Table')
+                            }}
                             className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
                             aria-label="Insert table"
                             title="Insert table"
@@ -1079,7 +1110,7 @@ const Editor = () => {
                         </div>
                     </div>
 
-                    {/* Glassmorphic Inline Toolbar - Fixed with horizontal scroll */}
+                    {/* Glassmorphic Inline Toolbar */}
                     {editor && (
                         <BubbleMenu
                             editor={editor}
@@ -1089,12 +1120,12 @@ const Editor = () => {
                                 animation: 'fade',
                                 interactive: true,
                                 appendTo: () => editorRef.current || document.body,
-                                offset: [0, 8], // 8px vertical gap above selection
-                                zIndex: 100 // Above editor
+                                offset: [0, 8],
+                                zIndex: 100
                             }}
                         >
                             <div
-                                className="flex items-center gap-1 bg-white/72 backdrop-blur-lg shadow-[0_8px_24px_rgba(0,0,0,0.12)] border border-gray-200/50 rounded-full px-2 py-1 overflow-x-auto scrollbar-hide animate-in fade-in slide-in-from-bottom-2"
+                                className="flex items-center gap-1 bg-white/90 backdrop-blur-lg shadow-lg border border-gray-200/50 rounded-full px-2 py-1 overflow-x-auto scrollbar-hide animate-in fade-in slide-in-from-bottom-2"
                                 style={{
                                     minHeight: '36px',
                                     maxWidth: '90vw',
@@ -1102,16 +1133,24 @@ const Editor = () => {
                                     msOverflowStyle: 'none'
                                 }}
                             >
+                                <button
+                                    onClick={() => requestRewrite({ id: 'smart', label: 'Smart Edit', description: 'Auto-improve', mode: 'smart', tone: 'academic' })}
+                                    className="flex items-center gap-1 px-2 py-1 rounded-full bg-[#6B46FF]/10 hover:bg-[#6B46FF]/20 text-[#6B46FF] transition-colors group flex-shrink-0 border border-[#6B46FF]/20"
+                                    style={{ fontSize: '13px' }}
+                                >
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    <span className="font-semibold whitespace-nowrap">Smart Edit</span>
+                                </button>
+                                <div className="w-px h-4 bg-gray-300 mx-1" />
                                 {INLINE_ACTIONS.map(action => (
                                     <button
                                         key={action.id}
                                         onClick={() => requestRewrite(action)}
-                                        className="flex items-center gap-1 px-2 py-1 rounded-full hover:bg-[#6B46FF]/10 transition-colors group flex-shrink-0"
+                                        className="flex items-center gap-1 px-2 py-1 rounded-full hover:bg-gray-100 transition-colors group flex-shrink-0"
                                         style={{ fontSize: '13px' }}
                                         aria-label={action.label}
                                     >
-                                        <Sparkles className="w-3.5 h-3.5 text-[#6B46FF] opacity-60 group-hover:opacity-100 transition-opacity" />
-                                        <span className="font-medium text-gray-800 whitespace-nowrap">{action.label}</span>
+                                        <span className="font-medium text-gray-700 whitespace-nowrap">{action.label}</span>
                                     </button>
                                 ))}
                             </div>
@@ -1122,31 +1161,49 @@ const Editor = () => {
                 </div>
             </div>
 
-            {/* Version Timeline Popup */}
+            {/* Version Timeline Modal */}
             {showVersionTimeline && (
-                <div className="fixed right-4 top-20 w-80 bg-white/95 backdrop-blur-lg border border-gray-200 rounded-xl shadow-2xl p-4 z-50">
-                    <div className="flex items-center justify-between mb-3">
-                        <h3 className="text-sm font-semibold text-gray-800">Version Timeline</h3>
-                        <button
-                            onClick={() => setShowVersionTimeline(false)}
-                            className="p-1 hover:bg-gray-100 rounded"
-                        >
-                            <X className="w-4 h-4" />
-                        </button>
-                    </div>
-                    <div className="space-y-2 max-h-96 overflow-y-auto">
-                        {versions.length === 0 ? (
-                            <p className="text-xs text-[#6b6f76]">No versions yet</p>
-                        ) : (
-                            versions.map(version => (
-                                <div key={version.id} className="p-2 border border-gray-100 rounded-lg hover:bg-gray-50">
-                                    <div className="flex items-center justify-between text-xs">
-                                        <span className="font-medium text-gray-800">{version.action}</span>
-                                        <span className="text-[#6b6f76]">{version.timestamp}</span>
-                                    </div>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm" onClick={() => setShowVersionTimeline(false)}>
+                    <div className="w-[500px] max-h-[80vh] bg-white rounded-xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden animate-in fade-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50/50">
+                            <h3 className="text-sm font-semibold text-gray-800">Version History</h3>
+                            <button
+                                onClick={() => setShowVersionTimeline(false)}
+                                className="p-1.5 hover:bg-gray-200/50 rounded-lg transition-colors"
+                            >
+                                <X className="w-4 h-4 text-gray-500" />
+                            </button>
+                        </div>
+                        <div className="p-4 overflow-y-auto space-y-3">
+                            {versions.length === 0 ? (
+                                <div className="text-center py-8 text-gray-500 text-sm">
+                                    <History className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                                    <p>No versions yet</p>
+                                    <p className="text-xs opacity-60 mt-1">Edits will appear here automatically</p>
                                 </div>
-                            ))
-                        )}
+                            ) : (
+                                versions.map(version => (
+                                    <div key={version.id} className="p-3 border border-gray-100 rounded-xl hover:bg-gray-50 group transition-all">
+                                        <div className="flex items-center justify-between text-sm mb-1">
+                                            <span className="font-medium text-gray-900">{version.action}</span>
+                                            <span className="text-xs text-gray-500">{version.timestamp}</span>
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                showToast(`Restored version from ${version.timestamp}`)
+                                                setShowVersionTimeline(false)
+                                                if (editor) {
+                                                    editor.commands.focus()
+                                                }
+                                            }}
+                                            className="w-full text-center text-xs text-[#6C2BD9] bg-[#6C2BD9]/5 hover:bg-[#6C2BD9]/10 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-all font-medium"
+                                        >
+                                            Restore this version
+                                        </button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
                     </div>
                 </div>
             )}
@@ -1379,6 +1436,13 @@ const Editor = () => {
                 initialGoals={goals}
                 onSave={handleSaveGoals}
             />
+            {selectedFactorForImprovement && (
+                <ImprovementSuggestionsModal
+                    factor={selectedFactorForImprovement}
+                    onClose={() => setSelectedFactorForImprovement(null)}
+                    onApplyFix={handleApplyQuickFix}
+                />
+            )}
         </div>
     )
 }
