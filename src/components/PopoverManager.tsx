@@ -33,7 +33,7 @@ export const PopoverProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const [anchor, setAnchor] = useState<PopoverAnchor | null>(null)
     const [options, setOptions] = useState<PopoverOptions>({})
     const [position, setPosition] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
-    
+
     const popoverRef = useRef<HTMLDivElement>(null)
     const closeTimerRef = useRef<number | null>(null)
     const isHoveringPopoverRef = useRef(false)
@@ -41,10 +41,17 @@ export const PopoverProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const calculatePosition = useCallback(() => {
         if (!anchor || !popoverRef.current) return
 
-        const anchorRect = anchor instanceof DOMRect 
-            ? anchor 
-            : (anchor instanceof Range ? anchor.getBoundingClientRect() : anchor.getBoundingClientRect())
-        
+        let anchorRect: DOMRect
+
+        if (anchor instanceof DOMRect) {
+            anchorRect = anchor
+        } else if (anchor instanceof Range) {
+            const rects = anchor.getClientRects()
+            anchorRect = rects.length > 0 ? rects[0] : anchor.getBoundingClientRect()
+        } else {
+            anchorRect = anchor.getBoundingClientRect()
+        }
+
         const popoverRect = popoverRef.current.getBoundingClientRect()
         const viewportWidth = window.innerWidth
         const viewportHeight = window.innerHeight
@@ -54,9 +61,18 @@ export const PopoverProvider: React.FC<{ children: React.ReactNode }> = ({ child
         let top = anchorRect.top - popoverRect.height - offset
         let left = anchorRect.left + (anchorRect.width / 2) - (popoverRect.width / 2)
 
-        // Flip to bottom if not enough space on top
-        if (top < 10) {
+        // Flip to bottom if not enough space on top (less than 120px or popover height)
+        // Requirement: If rect.top < 120px place popover below
+        if (anchorRect.top < 120 || top < 10) {
             top = anchorRect.bottom + offset
+        }
+
+        // Requirement: If rect.bottom > innerHeight - 120px place popover above (already default, but ensure logic holds)
+        if (anchorRect.bottom > viewportHeight - 120 && top > anchorRect.bottom) {
+            // If we flipped to bottom but it's too low, try top again if space permits
+            if (anchorRect.top > popoverRect.height + offset) {
+                top = anchorRect.top - popoverRect.height - offset
+            }
         }
 
         // Clamp horizontal
@@ -74,10 +90,22 @@ export const PopoverProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     useEffect(() => {
         if (isOpen) {
-            // Initial calculation
-            // We need a small delay or useLayoutEffect to wait for render, but useEffect is safer for SSR (though this is CSR)
-            // We'll use a ResizeObserver on the popover element to recalculate when it changes size
             calculatePosition()
+            console.debug('trinka: popover_open', {
+                anchorType: anchor instanceof Range ? 'Range' : (anchor instanceof HTMLElement ? 'Element' : 'Rect'),
+                position
+            })
+            // Focus the popover for accessibility (Tab navigation)
+            setTimeout(() => {
+                if (popoverRef.current) {
+                    const focusable = popoverRef.current.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') as HTMLElement
+                    if (focusable) {
+                        focusable.focus()
+                    } else {
+                        popoverRef.current.focus()
+                    }
+                }
+            }, 50)
         }
     }, [isOpen, anchor, calculatePosition])
 
@@ -109,11 +137,15 @@ export const PopoverProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setIsOpen(true)
     }, [])
 
-    const closePopover = useCallback(() => {
+    const closePopover = useCallback((reason: string = 'unknown') => {
         // If hovering popover and it's interactive, don't close immediately (handled by mouseleave)
-        // But this method is usually called by explicit actions or outside clicks
+        if (isHoveringPopoverRef.current && options.isInteractive) {
+            return
+        }
+
         setIsOpen(false)
         setAnchor(null)
+        console.debug('trinka: popover_close', { reason })
         if (options.onClose) options.onClose()
     }, [options])
 
@@ -123,7 +155,7 @@ export const PopoverProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         const handleClickOutside = (event: MouseEvent) => {
             const target = event.target as Node
-            
+
             // Don't close if clicking inside popover
             if (popoverRef.current && popoverRef.current.contains(target)) {
                 return
@@ -134,7 +166,7 @@ export const PopoverProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 return
             }
 
-            closePopover()
+            closePopover('outside-click')
         }
 
         document.addEventListener('mousedown', handleClickOutside)
@@ -146,7 +178,7 @@ export const PopoverProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (!isOpen) return
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
-                closePopover()
+                closePopover('escape')
             }
         }
         document.addEventListener('keydown', handleKeyDown)
@@ -154,7 +186,7 @@ export const PopoverProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }, [isOpen, closePopover])
 
     return (
-        <PopoverContext.Provider value={{ openPopover, closePopover, isPopoverOpen: isOpen }}>
+        <PopoverContext.Provider value={{ openPopover, closePopover: () => closePopover('manual'), isPopoverOpen: isOpen }}>
             {children}
             {isOpen && createPortal(
                 <div
@@ -163,20 +195,21 @@ export const PopoverProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     style={{
                         top: position.top,
                         left: position.left,
-                        position: 'absolute' // We use absolute with scrollY included, or fixed without scrollY. 
-                        // If we use 'fixed', we shouldn't add scrollY. Let's stick to 'absolute' so it scrolls with page, 
-                        // OR 'fixed' and update on scroll. 
-                        // The brief says "include scrolling (window.scrollX/Y)". 
-                        // If we use 'absolute', it attaches to document.
+                        position: 'absolute'
                     }}
-                    onMouseEnter={() => { isHoveringPopoverRef.current = true }}
-                    onMouseLeave={() => { 
-                        isHoveringPopoverRef.current = false 
-                        // Optional: delayed close on mouse leave? 
-                        // The brief says: "Use a 200–300ms graceful close delay on mouseleave."
-                        // But that usually applies when the *trigger* also has mouseleave.
-                        // We'll handle this logic in the consumer or here if we want global behavior.
-                        // For now, let's just track state.
+                    onMouseEnter={() => {
+                        isHoveringPopoverRef.current = true
+                        if (closeTimerRef.current) {
+                            window.clearTimeout(closeTimerRef.current)
+                            closeTimerRef.current = null
+                        }
+                    }}
+                    onMouseLeave={() => {
+                        isHoveringPopoverRef.current = false
+                        // 250ms graceful close delay
+                        closeTimerRef.current = window.setTimeout(() => {
+                            closePopover('timeout')
+                        }, 250)
                     }}
                 >
                     {content}

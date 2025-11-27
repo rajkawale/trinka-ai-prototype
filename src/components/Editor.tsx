@@ -362,13 +362,18 @@ const Editor = () => {
     }, [editor, simulateIssues])
 
     // Handle hover on grammar/tone underlines + popover lifecycle (Tasks A,B,G)
-    // Handle hover on grammar/tone underlines + popover lifecycle (Tasks A,B,G)
     useEffect(() => {
         if (!editor) return
 
         const editorElement = editor.view.dom
 
-        const handleMouseOver = (e: MouseEvent) => {
+        // Only attach hover listener if we want hover behavior. 
+        // Step 1 requirement: "Only show inline mini-toolbar icons... when there is an active selection"
+        // But for grammar underlines, we usually want click or hover. 
+        // Step 7 says "Disable hover-triggered popovers globally".
+        // So we should CHANGE this to click.
+
+        const handleClick = (e: MouseEvent) => {
             const target = e.target as HTMLElement
             if (target.classList.contains('grammar-tone-underline')) {
                 const type = target.getAttribute('data-type')
@@ -391,7 +396,6 @@ const Editor = () => {
                         docId="current-doc"
                         onClose={closePopover}
                         onApply={() => {
-                            // Apply logic here or pass handler
                             closePopover()
                         }}
                     />
@@ -402,81 +406,67 @@ const Editor = () => {
             }
         }
 
-        // Selection update handler for popover
+        editorElement.addEventListener('click', handleClick)
+
+        // Handle selection updates for inline toolbar
         const handleSelectionUpdate = () => {
             const { from, to, empty } = editor.state.selection
+            const selectionText = editor.state.doc.textBetween(from, to, ' ')
 
-            if (!empty) {
-                const domSelection = window.getSelection()
-                if (domSelection && domSelection.rangeCount > 0) {
-                    const range = domSelection.getRangeAt(0)
-                    const text = domSelection.toString()
+            // Requirement: Only show inline mini-toolbar when selectionText.length > 0
+            if (empty || selectionText.trim().length === 0) {
+                return
+            }
 
-                    if (text.trim().length > 0) {
-                        // Check for overlapping issues
-                        const overlappingIssues = grammarToneIssues.filter(issue =>
-                            (issue.from >= from && issue.from < to) ||
-                            (issue.to > from && issue.to <= to) ||
-                            (issue.from <= from && issue.to >= to)
-                        )
+            // Open the list popover for selection
+            // We use the selection range as anchor
+            const domSelection = window.getSelection()
+            if (domSelection && domSelection.rangeCount > 0) {
+                const range = domSelection.getRangeAt(0)
 
-                        let recommendations: Recommendation[] = []
-
-                        if (overlappingIssues.length > 0) {
-                            recommendations = overlappingIssues.map(issue => ({
-                                id: `issue-${issue.from}-${Date.now()}`,
-                                title: issue.message,
-                                summary: issue.suggestion || '',
-                                fullText: issue.message,
-                                originalText: text, // Using selected text as context
-                                actionType: (issue.type === 'grammar' ? 'tighten' : 'paraphrase') as ActionType,
-                                estimatedImpact: 'medium'
-                            }))
-                        } else {
-                            // Generic rewrite
-                            recommendations.push({
-                                id: `selection-${Date.now()}`,
-                                title: 'Improve selection',
-                                summary: 'Rewrite for clarity and tone',
-                                fullText: 'AI-powered rewrite',
-                                originalText: text,
-                                actionType: 'rewrite',
-                                estimatedImpact: 'medium'
-                            })
-                        }
-
-                        const content = recommendations.length > 1
-                            ? (
-                                <RecommendationListPopover
-                                    recommendations={recommendations}
-                                    docId="current-doc"
-                                    onClose={closePopover}
-                                    onApply={() => closePopover()}
-                                />
-                            )
-                            : (
-                                <RecommendationDetailPopover
-                                    recommendation={recommendations[0]}
-                                    docId="current-doc"
-                                    onClose={closePopover}
-                                    onApply={() => closePopover()}
-                                />
-                            )
-
-                        openPopover(range, content, {
-                            placement: 'top',
-                            offset: 10
-                        })
+                // Mock recommendations for selection
+                const recommendations: Recommendation[] = [
+                    {
+                        id: 'rec-1',
+                        title: 'Improve clarity',
+                        summary: 'Simplify this sentence',
+                        fullText: 'Consider simplifying this sentence for better readability.',
+                        originalText: selectionText,
+                        actionType: 'rewrite',
+                        estimatedImpact: 'high'
+                    },
+                    {
+                        id: 'rec-2',
+                        title: 'Fix tone',
+                        summary: 'Make it more professional',
+                        fullText: 'The tone here is a bit casual.',
+                        originalText: selectionText,
+                        actionType: 'tone',
+                        estimatedImpact: 'medium'
                     }
-                }
+                ]
+
+                openPopover(range, (
+                    <RecommendationListPopover
+                        recommendations={recommendations}
+                        docId="current-doc"
+                        onClose={closePopover}
+                        onApply={(rec) => {
+                            console.log('Applying', rec)
+                            closePopover()
+                        }}
+                    />
+                ), {
+                    placement: 'top',
+                    offset: 10
+                })
             }
         }
 
-        editorElement.addEventListener('mouseover', handleMouseOver)
         editor.on('selectionUpdate', handleSelectionUpdate)
 
         return () => {
-            editorElement.removeEventListener('mouseover', handleMouseOver)
+            editorElement.removeEventListener('click', handleClick)
             editor.off('selectionUpdate', handleSelectionUpdate)
         }
     }, [editor, openPopover, closePopover])
