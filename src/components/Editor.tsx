@@ -424,6 +424,7 @@ const Editor = () => {
                         recommendation={recommendation}
                         docId="current-doc"
                         onClose={closePopover}
+                        onShowToast={showToast}
                         onApply={() => {
                             if (suggestion && from && to) {
                                 const fromPos = parseInt(from)

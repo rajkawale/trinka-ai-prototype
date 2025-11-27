@@ -323,7 +323,7 @@ const RecommendationDetailPopover = ({
                 <button
                     onClick={handleIgnore}
                     className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                    title="Ignore"
+                    title="Dismiss"
                 >
                     <Trash2 size={16} />
                 </button>
@@ -347,7 +347,7 @@ const RecommendationDetailPopover = ({
                                 className="w-full text-left px-4 py-2 text-[13px] text-gray-700 hover:bg-gray-50 flex items-center gap-2"
                             >
                                 <Trash2 size={14} className="text-gray-400" />
-                                Ignore
+                                Dismiss
                             </button>
                             <button
                                 onClick={handleAddToDictionary}
