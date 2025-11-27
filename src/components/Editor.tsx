@@ -128,6 +128,11 @@ const Editor = () => {
     const [selectedFactorForImprovement, setSelectedFactorForImprovement] = useState<string | null>(null)
     const [writingScore, setWritingScore] = useState(100)
 
+    const showToast = useCallback((message: string, undo?: () => void) => {
+        setToast({ message, undo })
+        setTimeout(() => setToast(null), 3000)
+    }, [])
+
     // Toolbar states
     // Toolbar states
     const [showFontMenu, setShowFontMenu] = useState(false)
@@ -425,6 +430,7 @@ const Editor = () => {
                                 const toPos = parseInt(to)
                                 if (!isNaN(fromPos) && !isNaN(toPos)) {
                                     editor.chain().focus().setTextSelection({ from: fromPos, to: toPos }).insertContent(suggestion).run()
+                                    console.log('trinka:suggestion_accepted', { id: recommendation.id, suggestion })
                                 }
                             }
                             closePopover()
@@ -437,559 +443,559 @@ const Editor = () => {
                 })
                 console.debug('trinka:popover-opened-click')
             }
+        }
 
-            const createSnapshot = useCallback(async (action: string, delta: string) => {
-                const snapshot: VersionSnapshot = {
-                    id: createRequestId(),
-                    timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        editor.view.dom.addEventListener('click', handleClick)
+        return () => editor.view.dom.removeEventListener('click', handleClick)
+    }, [editor, openPopover, closePopover])
+
+    const createSnapshot = useCallback(async (action: string, delta: string) => {
+        const snapshot: VersionSnapshot = {
+            id: createRequestId(),
+            timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+            action,
+            delta
+        }
+        setVersions(prev => [snapshot, ...prev].slice(0, 20))
+        setRevisionCount(prev => prev + 1)
+
+        // Save to backend
+        try {
+            const plainText = editor?.state.doc.textBetween(0, editor.state.doc.content.size, ' ') || ''
+            const words = plainText.trim().split(/\s+/).filter(Boolean).length
+            await fetch(trinkaApi('/versions'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    summary: `${action} - ${words} words`,
+                    word_count: words,
                     action,
                     delta
-                }
-                setVersions(prev => [snapshot, ...prev].slice(0, 20))
-                setRevisionCount(prev => prev + 1)
-
-                // Save to backend
-                try {
-                    const plainText = editor?.state.doc.textBetween(0, editor.state.doc.content.size, ' ') || ''
-                    const words = plainText.trim().split(/\s+/).filter(Boolean).length
-                    await fetch(trinkaApi('/versions'), {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            summary: `${action} - ${words} words`,
-                            word_count: words,
-                            action,
-                            delta
-                        })
-                    })
-                } catch (error) {
-                    console.error('Failed to save snapshot:', error)
-                }
-                return snapshot
-            }, [editor])
-
-            const handleApplyQuickFix = (fix: string) => {
-                showToast(`Applying fix: ${fix}...`)
-                setTimeout(() => {
-                    showToast(`Applied: ${fix}`)
-                    createSnapshot('Quick Fix', fix)
-                }, 1000)
-            }
-
-            const requestRewrite = async (action: AiAction, sectionText?: string) => {
-                if (!editor) return
-                const { from, to } = editor.state.selection
-                const selected = sectionText || editor.state.doc.textBetween(from, to)
-
-                if (!selected.trim()) {
-                    showToast('Select text before triggering AI.')
-                    return
-                }
-
-
-                const previewId = createRequestId()
-                setPreview({
-                    id: previewId,
-                    label: action.label,
-                    intent: action.mode,
-                    status: 'loading',
-                    original: selected,
-                    suggestion: '',
-                    range: { from, to }
                 })
+            })
+        } catch (error) {
+            console.error('Failed to save snapshot:', error)
+        }
+        return snapshot
+    }, [editor])
 
-                try {
-                    const response = await fetch(trinkaApi('/rewrite'), {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            text: selected,
-                            tone: action.tone,
-                            mode: action.mode
-                        })
-                    })
-                    const data = await response.json()
-                    const suggestion = data?.rewritten_text ?? selected
+    const handleApplyQuickFix = (fix: string) => {
+        showToast(`Applying fix: ${fix}...`)
+        setTimeout(() => {
+            showToast(`Applied: ${fix}`)
+            createSnapshot('Quick Fix', fix)
+        }, 1000)
+    }
 
-                    // Highlight changed tokens (simple diff simulation)
-                    const changedTokens: { from: number; to: number }[] = []
-                    // In real implementation, use a proper diff algorithm
+    const requestRewrite = async (action: AiAction, sectionText?: string) => {
+        if (!editor) return
+        const { from, to } = editor.state.selection
+        const selected = sectionText || editor.state.doc.textBetween(from, to)
 
-                    setPreview(current => current && current.id === previewId ? {
-                        ...current,
-                        suggestion,
-                        status: suggestion ? 'ready' : 'error',
-                        changedTokens
-                    } : current)
-                } catch (error) {
-                    console.error('Rewrite failed:', error)
-                    setPreview(current => current && current.id === previewId ? { ...current, status: 'error' } : current)
-                    showToast('Copilot could not complete that request. Please retry.')
-                }
-            }
-
-            const applySuggestion = () => {
-                if (!editor || !preview || preview.status !== 'ready') return
+        if (!selected.trim()) {
+            showToast('Select text before triggering AI.')
+            return
+        }
 
 
-                const beforeState = editor.state.doc.toString()
-                const undoFn = () => {
-                    editor.commands.setContent(beforeState)
-                    setPreview(null)
-                }
+        const previewId = createRequestId()
+        setPreview({
+            id: previewId,
+            label: action.label,
+            intent: action.mode,
+            status: 'loading',
+            original: selected,
+            suggestion: '',
+            range: { from, to }
+        })
 
-                editor
-                    .chain()
-                    .focus()
-                    .insertContentAt({ from: preview.range.from, to: preview.range.to }, preview.suggestion)
-                    .run()
+        try {
+            const response = await fetch(trinkaApi('/rewrite'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: selected,
+                    tone: action.tone,
+                    mode: action.mode
+                })
+            })
+            const data = await response.json()
+            const suggestion = data?.rewritten_text ?? selected
 
-                // Create snapshot
-                const delta = JSON.stringify({ from: preview.range.from, to: preview.range.to, text: preview.suggestion })
-                createSnapshot('AI rewrite', delta)
+            // Highlight changed tokens (simple diff simulation)
+            const changedTokens: { from: number; to: number }[] = []
+            // In real implementation, use a proper diff algorithm
 
-                showToast('Version saved • Undo', undoFn)
-                setPreview(null)
-            }
+            setPreview(current => current && current.id === previewId ? {
+                ...current,
+                suggestion,
+                status: suggestion ? 'ready' : 'error',
+                changedTokens
+            } : current)
+        } catch (error) {
+            console.error('Rewrite failed:', error)
+            setPreview(current => current && current.id === previewId ? { ...current, status: 'error' } : current)
+            showToast('Copilot could not complete that request. Please retry.')
+        }
+    }
 
-            const discardSuggestion = () => {
-                setPreview(null)
-            }
+    const applySuggestion = () => {
+        if (!editor || !preview || preview.status !== 'ready') return
+
+        editor
+            .chain()
+            .focus()
+            .insertContentAt({ from: preview.range.from, to: preview.range.to }, preview.suggestion)
+            .run()
+
+        console.log('trinka:suggestion_accepted', { id: preview.id, suggestion: preview.suggestion })
+
+        // Create snapshot
+        const delta = JSON.stringify({ from: preview.range.from, to: preview.range.to, text: preview.suggestion })
+        createSnapshot('AI rewrite', delta)
+
+        showToast('Suggestion applied')
+        setPreview(null)
+    }
+
+    const discardSuggestion = () => {
+        setPreview(null)
+    }
 
 
-            if (!editor) {
-                return (
-                    <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
-                        Initializing editor…
-                    </div>
-                )
-            }
+    if (!editor) {
+        return (
+            <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
+                Initializing editor…
+            </div>
+        )
+    }
 
-            const handleFileUpload = (files: FileList | null) => {
-                if (!files) return
-                const fileArray = Array.from(files)
-                const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.openxmlformats-officedocument.presentationml.presentation']
-                const validFiles = fileArray.filter(f => allowedTypes.includes(f.type))
-                setUploadedFiles(prev => [...prev, ...validFiles])
-            }
+    const handleFileUpload = (files: FileList | null) => {
+        if (!files) return
+        const fileArray = Array.from(files)
+        const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.openxmlformats-officedocument.presentationml.presentation']
+        const validFiles = fileArray.filter(f => allowedTypes.includes(f.type))
+        setUploadedFiles(prev => [...prev, ...validFiles])
+    }
 
 
-            return (
-                <div className="w-full flex gap-4" ref={editorRef}>
-                    {/* Left Panel - Document Intelligence */}
-                    <aside
-                        className={cn(
-                            "flex-shrink-0 bg-white/80 backdrop-blur-lg border border-gray-200 rounded-xl shadow-sm transition-all duration-[200ms] ease-in-out",
-                            isHealthCollapsed ? "w-[40px] p-2 doc-health-collapsed" : "w-[280px] p-4"
+    return (
+        <div className="w-full flex gap-4" ref={editorRef}>
+            {/* Left Panel - Document Intelligence */}
+            <aside
+                className={cn(
+                    "flex-shrink-0 bg-white/80 backdrop-blur-lg border border-gray-200 rounded-xl shadow-sm transition-all duration-[200ms] ease-in-out",
+                    isHealthCollapsed ? "w-[40px] p-2 doc-health-collapsed" : "w-[280px] p-4"
+                )}
+                style={{ outline: 'none' }}
+                aria-hidden={isHealthCollapsed}
+            >
+                {isHealthCollapsed ? (
+                    <div className="relative group">
+                        <button
+                            ref={healthButtonRef}
+                            onClick={() => setIsHealthCollapsed(false)}
+                            onMouseEnter={() => {
+                                if (healthButtonRef.current) {
+                                    const rect = healthButtonRef.current.getBoundingClientRect()
+                                    setHoverPreviewPosition({
+                                        left: rect.right + 8,
+                                        top: rect.bottom
+                                    })
+                                }
+                            }}
+                            onMouseLeave={() => setHoverPreviewPosition(null)}
+                            className="w-full h-10 flex items-center justify-center hover:bg-gray-100 rounded transition-colors border border-gray-200"
+                            title="Document Health (Press D)"
+                        >
+                            <Gauge className="w-4 h-4 text-[#6B46FF]" />
+                        </button>
+                        {/* Hover preview - above editor */}
+                        {hoverPreviewPosition && (
+                            <div
+                                className="fixed w-64 bg-white border border-gray-200 rounded-lg shadow-lg p-4 pointer-events-none transition-opacity"
+                                style={{
+                                    zIndex: 10000,
+                                    left: `${hoverPreviewPosition.left}px`,
+                                    top: `${hoverPreviewPosition.top}px`
+                                }}
+                            >
+                                <div className="space-y-2 text-sm">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-gray-600">Tone</span>
+                                        <span className="px-2 py-0.5 bg-[#35C28B]/10 text-[#35C28B] rounded-full text-xs">Stable</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-gray-600">Words</span>
+                                        <span className="font-medium">{wordCount}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-gray-600">Read time</span>
+                                        <span className="font-medium">{readTime}</span>
+                                    </div>
+                                </div>
+                            </div>
                         )}
-                        style={{ outline: 'none' }}
-                        aria-hidden={isHealthCollapsed}
-                    >
-                        {isHealthCollapsed ? (
-                            <div className="relative group">
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        {/* Document Health Header */}
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <span className="text-[12px] font-medium text-[#6b6f76]">Writing Quality Score</span>
+                                <span className={cn(
+                                    "text-[12px] font-bold px-1.5 py-0.5 rounded",
+                                    writingScore >= 90 ? "bg-[#35C28B]/10 text-[#35C28B]" :
+                                        writingScore >= 70 ? "bg-blue-100 text-blue-700" :
+                                            "bg-amber-100 text-amber-700"
+                                )}>
+                                    {writingScore}
+                                </span>
+                            </div>
+                            <div className="flex items-center">
                                 <button
-                                    ref={healthButtonRef}
-                                    onClick={() => setIsHealthCollapsed(false)}
-                                    onMouseEnter={() => {
-                                        if (healthButtonRef.current) {
-                                            const rect = healthButtonRef.current.getBoundingClientRect()
-                                            setHoverPreviewPosition({
-                                                left: rect.right + 8,
-                                                top: rect.bottom
-                                            })
+                                    onClick={() => setShowGoalsModal(true)}
+                                    className="p-1 hover:bg-gray-100 rounded transition-colors mr-1"
+                                    title="Set Goals"
+                                >
+                                    <Target className="w-3.5 h-3.5 text-gray-500" />
+                                </button>
+                                <button
+                                    onClick={() => setIsHealthCollapsed(true)}
+                                    className="p-1 hover:bg-gray-100 rounded transition-colors"
+                                    title="Collapse (Press D)"
+                                >
+                                    <ChevronLeft className="w-3.5 h-3.5 text-gray-500" />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Score Factors Card */}
+                        <div className="bg-gray-50/50 rounded-lg p-3 border border-gray-100 space-y-3">
+                            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Score Factors</p>
+                            {qualitySignals.map((signal) => (
+                                <button
+                                    key={signal.label}
+                                    onClick={() => {
+                                        if (signal.status === 'success') {
+                                            showToast(`${signal.label} is looking good! ✓`)
+                                        } else {
+                                            setSelectedFactorForImprovement(signal.label)
                                         }
                                     }}
-                                    onMouseLeave={() => setHoverPreviewPosition(null)}
-                                    className="w-full h-10 flex items-center justify-center hover:bg-gray-100 rounded transition-colors border border-gray-200"
-                                    title="Document Health (Press D)"
+                                    className="w-full text-left space-y-1 hover:bg-gray-100 p-1.5 -mx-1.5 rounded transition-colors group"
                                 >
-                                    <Gauge className="w-4 h-4 text-[#6B46FF]" />
+                                    <div className="flex items-center justify-between text-[12px]">
+                                        <span className="text-gray-600 group-hover:text-gray-900">{signal.label}</span>
+                                        <span className={cn(
+                                            "font-medium",
+                                            signal.status === 'success' ? "text-[#35C28B]" :
+                                                signal.status === 'warning' ? "text-amber-600" : "text-blue-600"
+                                        )}>
+                                            {signal.value}
+                                        </span>
+                                    </div>
+                                    <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
+                                        <div
+                                            className={cn(
+                                                "h-full rounded-full transition-all duration-500",
+                                                signal.status === 'success' ? "bg-[#35C28B] w-full" :
+                                                    signal.status === 'warning' ? "bg-amber-400 w-[60%]" : "bg-blue-400 w-[80%]"
+                                            )}
+                                        />
+                                    </div>
                                 </button>
-                                {/* Hover preview - above editor */}
-                                {hoverPreviewPosition && (
-                                    <div
-                                        className="fixed w-64 bg-white border border-gray-200 rounded-lg shadow-lg p-4 pointer-events-none transition-opacity"
-                                        style={{
-                                            zIndex: 10000,
-                                            left: `${hoverPreviewPosition.left}px`,
-                                            top: `${hoverPreviewPosition.top}px`
+                            ))}
+
+                            {/* Word Count */}
+                            <div className="flex items-center justify-between text-[13px] pt-2 border-t border-gray-200">
+                                <span className="text-gray-600">Word count</span>
+                                <span className="text-[12px] font-medium text-gray-800">{wordCount}</span>
+                            </div>
+
+                            {/* Read Time */}
+                            <div className="flex items-center justify-between text-[13px]">
+                                <span className="text-gray-600 flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    Read time
+                                </span>
+                                <span className="text-[12px] font-medium text-gray-800">{readTime}</span>
+                            </div>
+
+                            {/* Version History */}
+                            <div className="flex items-center justify-between text-[13px]">
+                                <span className="text-gray-600 flex items-center gap-1">
+                                    <History className="w-3 h-3" />
+                                    Version History
+                                </span>
+                                <button
+                                    onClick={() => setShowVersionTimeline(true)}
+                                    className="text-[12px] font-medium text-[#6C2BD9] hover:underline cursor-pointer"
+                                >
+                                    {revisionCount || 3} versions
+                                </button>
+                            </div>
+
+                            {/* Top Suggestions - Actionable */}
+                            <div className="space-y-1.5 pt-2 border-t border-gray-200">
+                                <div className="flex items-center justify-between text-[13px] mb-1.5">
+                                    <span className="text-gray-600 font-medium">Top suggestions</span>
+                                    <button
+                                        onClick={() => setShowSuggestionsModal(true)}
+                                        className="text-[12px] text-[#6C2BD9] hover:text-[#6C2BD9]/80 font-medium transition-colors"
+                                    >
+                                        See all
+                                    </button>
+                                </div>
+                                <div className="space-y-1">
+                                    <DocumentHealthTopSuggestionRow
+                                        suggestion={{
+                                            id: 'suggestion-1',
+                                            title: 'This paragraph is overly complex.',
+                                            summary: 'Simplify sentence structure',
+                                            fullText: 'This paragraph contains multiple nested clauses and complex sentence structures that may reduce readability. Consider breaking it into shorter, clearer sentences.',
+                                            actionType: 'tighten',
+                                            estimatedImpact: 'medium'
+                                        }}
+                                        docId="current-doc"
+                                        onApply={() => {
+                                            showToast(`Applied: This paragraph is overly complex. Undo`)
+                                        }}
+                                    />
+                                    <DocumentHealthTopSuggestionRow
+                                        suggestion={{
+                                            id: 'suggestion-2',
+                                            title: 'Try reducing passive voice.',
+                                            summary: 'Use active voice for clarity',
+                                            fullText: 'Several sentences in this section use passive voice, which can make the writing less direct. Consider rewriting in active voice where possible.',
+                                            actionType: 'rewrite',
+                                            estimatedImpact: 'high'
+                                        }}
+                                        docId="current-doc"
+                                        onApply={() => {
+                                            showToast(`Applied: Try reducing passive voice. Undo`)
+                                        }}
+                                    />
+                                    <DocumentHealthTopSuggestionRow
+                                        suggestion={{
+                                            id: 'suggestion-3',
+                                            title: 'Sentence length exceeds recommended readability.',
+                                            summary: 'Break into shorter sentences',
+                                            fullText: 'Some sentences exceed 25 words, which can reduce readability. Consider splitting long sentences into two or more shorter ones.',
+                                            actionType: 'tighten',
+                                            estimatedImpact: 'low'
+                                        }}
+                                        docId="current-doc"
+                                        onApply={() => {
+                                            showToast(`Applied: Sentence length exceeds recommended readability. Undo`)
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+
+                        {/* Outline */}
+                        <div>
+                            <div className="flex items-center gap-1.5 text-[13px] font-medium text-gray-700 mb-2">
+                                <BookMarked className="w-3.5 h-3.5 text-[#6C2BD9]" />
+                                Outline
+                            </div>
+                            <div className="space-y-0.5">
+                                {(outline.length ? outline : [{ id: 'intro', label: 'Introduction', level: 2, position: 0 }]).map(node => (
+                                    <button
+                                        key={node.id}
+                                        className={cn(
+                                            'w-full text-left text-[13px] px-2.5 py-1.5 rounded-lg hover:bg-black/3 transition-colors',
+                                            node.level > 2 && 'pl-4 text-[#6b6f76] text-[12px]'
+                                        )}
+                                        onClick={() => {
+                                            const found = outline.find(o => o.id === node.id)
+                                            if (found) {
+                                                editor
+                                                    .chain()
+                                                    .focus()
+                                                    .setTextSelection({ from: found.position, to: found.position + found.label.length })
+                                                    .scrollIntoView()
+                                                    .run()
+                                            }
                                         }}
                                     >
-                                        <div className="space-y-2 text-sm">
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-gray-600">Tone</span>
-                                                <span className="px-2 py-0.5 bg-[#35C28B]/10 text-[#35C28B] rounded-full text-xs">Stable</span>
-                                            </div>
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-gray-600">Words</span>
-                                                <span className="font-medium">{wordCount}</span>
-                                            </div>
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-gray-600">Read time</span>
-                                                <span className="font-medium">{readTime}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
+                                        <span>{node.label}</span>
+                                    </button>
+                                ))}
                             </div>
-                        ) : (
-                            <div className="space-y-4">
-                                {/* Document Health Header */}
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-[12px] font-medium text-[#6b6f76]">Writing Quality Score</span>
-                                        <span className={cn(
-                                            "text-[12px] font-bold px-1.5 py-0.5 rounded",
-                                            writingScore >= 90 ? "bg-[#35C28B]/10 text-[#35C28B]" :
-                                                writingScore >= 70 ? "bg-blue-100 text-blue-700" :
-                                                    "bg-amber-100 text-amber-700"
-                                        )}>
-                                            {writingScore}
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center">
-                                        <button
-                                            onClick={() => setShowGoalsModal(true)}
-                                            className="p-1 hover:bg-gray-100 rounded transition-colors mr-1"
-                                            title="Set Goals"
-                                        >
-                                            <Target className="w-3.5 h-3.5 text-gray-500" />
-                                        </button>
-                                        <button
-                                            onClick={() => setIsHealthCollapsed(true)}
-                                            className="p-1 hover:bg-gray-100 rounded transition-colors"
-                                            title="Collapse (Press D)"
-                                        >
-                                            <ChevronLeft className="w-3.5 h-3.5 text-gray-500" />
-                                        </button>
-                                    </div>
-                                </div>
+                        </div>
+                    </div>
+                )}
+            </aside>
 
-                                {/* Score Factors Card */}
-                                <div className="bg-gray-50/50 rounded-lg p-3 border border-gray-100 space-y-3">
-                                    <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Score Factors</p>
-                                    {qualitySignals.map((signal) => (
+            {/* Center Editor */}
+            <div className="flex-1">
+                {/* Editor */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden relative">
+                    {/* Expanded Toolbar */}
+                    <div className="flex items-center gap-1 p-2 border-b border-gray-100 bg-gray-50/50 flex-wrap relative z-10 pointer-events-auto">
+                        {/* Formatting */}
+                        <button
+                            onClick={() => editor.chain().focus().toggleBold().run()}
+                            className={cn(
+                                "p-1.5 rounded hover:bg-gray-200 transition-colors",
+                                editor.isActive('bold') ? 'bg-gray-200 text-[#6B46FF]' : 'text-gray-600'
+                            )}
+                            aria-label="Bold"
+                        >
+                            <Bold className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => editor.chain().focus().toggleItalic().run()}
+                            className={cn(
+                                "p-1.5 rounded hover:bg-gray-200 transition-colors",
+                                editor.isActive('italic') ? 'bg-gray-200 text-[#6B46FF]' : 'text-gray-600'
+                            )}
+                            aria-label="Italic"
+                        >
+                            <Italic className="w-4 h-4" />
+                        </button>
+                        <div className="w-px h-4 bg-gray-300 mx-0.5" />
+
+                        {/* Lists */}
+                        <button
+                            onClick={() => editor.chain().focus().toggleBulletList().run()}
+                            className={cn(
+                                "p-1.5 rounded hover:bg-gray-200 transition-colors",
+                                editor.isActive('bulletList') ? 'bg-gray-200 text-[#6B46FF]' : 'text-gray-600'
+                            )}
+                            aria-label="Bullet list"
+                        >
+                            <List className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => editor.chain().focus().toggleOrderedList().run()}
+                            className={cn(
+                                "p-1.5 rounded hover:bg-gray-200 transition-colors",
+                                editor.isActive('orderedList') ? 'bg-gray-200 text-[#6B46FF]' : 'text-gray-600'
+                            )}
+                            aria-label="Numbered list"
+                        >
+                            <ListOrdered className="w-4 h-4" />
+                        </button>
+                        <div className="w-px h-4 bg-gray-300 mx-0.5" />
+
+                        {/* Paragraph Styles */}
+                        <div className="relative" ref={paragraphMenuRef}>
+                            <button
+                                onClick={() => setShowParagraphMenu(!showParagraphMenu)}
+                                className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600 flex items-center gap-1"
+                                aria-label="Paragraph styles"
+                            >
+                                <Type className="w-4 h-4" />
+                                <ChevronDown className="w-3 h-3" />
+                            </button>
+                            {showParagraphMenu && (
+                                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-1 z-50 w-40">
+                                    {[1, 2, 3, 4].map(level => (
                                         <button
-                                            key={signal.label}
+                                            key={level}
                                             onClick={() => {
-                                                if (signal.status === 'success') {
-                                                    showToast(`${signal.label} is looking good! ✓`)
-                                                } else {
-                                                    setSelectedFactorForImprovement(signal.label)
-                                                }
+                                                editor.chain().focus().toggleHeading({ level: level as 1 | 2 | 3 | 4 }).run()
+                                                setShowParagraphMenu(false)
                                             }}
-                                            className="w-full text-left space-y-1 hover:bg-gray-100 p-1.5 -mx-1.5 rounded transition-colors group"
+                                            className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 rounded flex items-center gap-2"
                                         >
-                                            <div className="flex items-center justify-between text-[12px]">
-                                                <span className="text-gray-600 group-hover:text-gray-900">{signal.label}</span>
-                                                <span className={cn(
-                                                    "font-medium",
-                                                    signal.status === 'success' ? "text-[#35C28B]" :
-                                                        signal.status === 'warning' ? "text-amber-600" : "text-blue-600"
-                                                )}>
-                                                    {signal.value}
-                                                </span>
-                                            </div>
-                                            <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
-                                                <div
-                                                    className={cn(
-                                                        "h-full rounded-full transition-all duration-500",
-                                                        signal.status === 'success' ? "bg-[#35C28B] w-full" :
-                                                            signal.status === 'warning' ? "bg-amber-400 w-[60%]" : "bg-blue-400 w-[80%]"
-                                                    )}
-                                                />
-                                            </div>
+                                            <span className={cn(
+                                                "font-bold",
+                                                level === 1 && "text-xl",
+                                                level === 2 && "text-lg",
+                                                level === 3 && "text-base",
+                                                level === 4 && "text-sm"
+                                            )}>H{level}</span>
+                                            Heading {level}
                                         </button>
                                     ))}
+                                    <button
+                                        onClick={() => {
+                                            editor.chain().focus().setParagraph().run()
+                                            setShowParagraphMenu(false)
+                                        }}
+                                        className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 rounded"
+                                    >
+                                        Paragraph
+                                    </button>
+                                </div>
+                            )}
+                        </div>
 
-                                    {/* Word Count */}
-                                    <div className="flex items-center justify-between text-[13px] pt-2 border-t border-gray-200">
-                                        <span className="text-gray-600">Word count</span>
-                                        <span className="text-[12px] font-medium text-gray-800">{wordCount}</span>
-                                    </div>
-
-                                    {/* Read Time */}
-                                    <div className="flex items-center justify-between text-[13px]">
-                                        <span className="text-gray-600 flex items-center gap-1">
-                                            <Clock className="w-3 h-3" />
-                                            Read time
-                                        </span>
-                                        <span className="text-[12px] font-medium text-gray-800">{readTime}</span>
-                                    </div>
-
-                                    {/* Version History */}
-                                    <div className="flex items-center justify-between text-[13px]">
-                                        <span className="text-gray-600 flex items-center gap-1">
-                                            <History className="w-3 h-3" />
-                                            Version History
-                                        </span>
+                        {/* Font Size */}
+                        <div className="relative" ref={fontMenuRef}>
+                            <button
+                                onClick={() => setShowFontMenu(!showFontMenu)}
+                                className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600 flex items-center gap-1"
+                                aria-label="Font size"
+                            >
+                                <span className="text-xs">{fontSize}px</span>
+                                <ChevronDown className="w-3 h-3" />
+                            </button>
+                            {showFontMenu && (
+                                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-1 z-50 max-h-60 overflow-y-auto">
+                                    {[12, 14, 16, 18, 20, 24, 30, 36, 48, 60, 72].map(size => (
                                         <button
-                                            onClick={() => setShowVersionTimeline(true)}
-                                            className="text-[12px] font-medium text-[#6C2BD9] hover:underline cursor-pointer"
+                                            key={size}
+                                            onClick={() => {
+                                                setFontSize(size)
+                                                // Mock visual update
+                                                showToast(`Font size updated to ${size}px`)
+                                                setShowFontMenu(false)
+                                            }}
+                                            className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 rounded"
                                         >
-                                            {revisionCount || 3} versions
+                                            {size}px
                                         </button>
-                                    </div>
-
-                                    {/* Top Suggestions - Actionable */}
-                                    <div className="space-y-1.5 pt-2 border-t border-gray-200">
-                                        <div className="flex items-center justify-between text-[13px] mb-1.5">
-                                            <span className="text-gray-600 font-medium">Top suggestions</span>
-                                            <button
-                                                onClick={() => setShowSuggestionsModal(true)}
-                                                className="text-[12px] text-[#6C2BD9] hover:text-[#6C2BD9]/80 font-medium transition-colors"
-                                            >
-                                                See all
-                                            </button>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <DocumentHealthTopSuggestionRow
-                                                suggestion={{
-                                                    id: 'suggestion-1',
-                                                    title: 'This paragraph is overly complex.',
-                                                    summary: 'Simplify sentence structure',
-                                                    fullText: 'This paragraph contains multiple nested clauses and complex sentence structures that may reduce readability. Consider breaking it into shorter, clearer sentences.',
-                                                    actionType: 'tighten',
-                                                    estimatedImpact: 'medium'
-                                                }}
-                                                docId="current-doc"
-                                                onApply={() => {
-                                                    showToast(`Applied: This paragraph is overly complex. Undo`)
-                                                }}
-                                            />
-                                            <DocumentHealthTopSuggestionRow
-                                                suggestion={{
-                                                    id: 'suggestion-2',
-                                                    title: 'Try reducing passive voice.',
-                                                    summary: 'Use active voice for clarity',
-                                                    fullText: 'Several sentences in this section use passive voice, which can make the writing less direct. Consider rewriting in active voice where possible.',
-                                                    actionType: 'rewrite',
-                                                    estimatedImpact: 'high'
-                                                }}
-                                                docId="current-doc"
-                                                onApply={() => {
-                                                    showToast(`Applied: Try reducing passive voice. Undo`)
-                                                }}
-                                            />
-                                            <DocumentHealthTopSuggestionRow
-                                                suggestion={{
-                                                    id: 'suggestion-3',
-                                                    title: 'Sentence length exceeds recommended readability.',
-                                                    summary: 'Break into shorter sentences',
-                                                    fullText: 'Some sentences exceed 25 words, which can reduce readability. Consider splitting long sentences into two or more shorter ones.',
-                                                    actionType: 'tighten',
-                                                    estimatedImpact: 'low'
-                                                }}
-                                                docId="current-doc"
-                                                onApply={() => {
-                                                    showToast(`Applied: Sentence length exceeds recommended readability. Undo`)
-                                                }}
-                                            />
-                                        </div>
-                                    </div>
+                                    ))}
                                 </div>
+                            )}
+                        </div>
 
+                        <div className="w-px h-4 bg-gray-300 mx-0.5" />
 
-                                {/* Outline */}
-                                <div>
-                                    <div className="flex items-center gap-1.5 text-[13px] font-medium text-gray-700 mb-2">
-                                        <BookMarked className="w-3.5 h-3.5 text-[#6C2BD9]" />
-                                        Outline
-                                    </div>
-                                    <div className="space-y-0.5">
-                                        {(outline.length ? outline : [{ id: 'intro', label: 'Introduction', level: 2, position: 0 }]).map(node => (
-                                            <button
-                                                key={node.id}
-                                                className={cn(
-                                                    'w-full text-left text-[13px] px-2.5 py-1.5 rounded-lg hover:bg-black/3 transition-colors',
-                                                    node.level > 2 && 'pl-4 text-[#6b6f76] text-[12px]'
-                                                )}
-                                                onClick={() => {
-                                                    const found = outline.find(o => o.id === node.id)
-                                                    if (found) {
-                                                        editor
-                                                            .chain()
-                                                            .focus()
-                                                            .setTextSelection({ from: found.position, to: found.position + found.label.length })
-                                                            .scrollIntoView()
-                                                            .run()
-                                                    }
-                                                }}
-                                            >
-                                                <span>{node.label}</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </aside>
+                        {/* Alignment (Mocked) */}
+                        <div className="flex items-center gap-0.5">
+                            <button
+                                onClick={() => showToast('Aligned Left')}
+                                className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
+                                aria-label="Align left"
+                            >
+                                <AlignLeft className="w-4 h-4" />
+                            </button>
+                            <button
+                                onClick={() => showToast('Aligned Center')}
+                                className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
+                                aria-label="Align center"
+                            >
+                                <AlignCenter className="w-4 h-4" />
+                            </button>
+                            <button
+                                onClick={() => showToast('Aligned Right')}
+                                className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
+                                aria-label="Align right"
+                            >
+                                <AlignRight className="w-4 h-4" />
+                            </button>
+                            <button
+                                onClick={() => showToast('Justified')}
+                                className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
+                                aria-label="Align justify"
+                            >
+                                <AlignJustify className="w-4 h-4" />
+                            </button>
+                        </div>
 
-                    {/* Center Editor */}
-                    <div className="flex-1">
-                        {/* Editor */}
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden relative">
-                            {/* Expanded Toolbar */}
-                            <div className="flex items-center gap-1 p-2 border-b border-gray-100 bg-gray-50/50 flex-wrap relative z-10 pointer-events-auto">
-                                {/* Formatting */}
-                                <button
-                                    onClick={() => editor.chain().focus().toggleBold().run()}
-                                    className={cn(
-                                        "p-1.5 rounded hover:bg-gray-200 transition-colors",
-                                        editor.isActive('bold') ? 'bg-gray-200 text-[#6B46FF]' : 'text-gray-600'
-                                    )}
-                                    aria-label="Bold"
-                                >
-                                    <Bold className="w-4 h-4" />
-                                </button>
-                                <button
-                                    onClick={() => editor.chain().focus().toggleItalic().run()}
-                                    className={cn(
-                                        "p-1.5 rounded hover:bg-gray-200 transition-colors",
-                                        editor.isActive('italic') ? 'bg-gray-200 text-[#6B46FF]' : 'text-gray-600'
-                                    )}
-                                    aria-label="Italic"
-                                >
-                                    <Italic className="w-4 h-4" />
-                                </button>
-                                <div className="w-px h-4 bg-gray-300 mx-0.5" />
-
-                                {/* Lists */}
-                                <button
-                                    onClick={() => editor.chain().focus().toggleBulletList().run()}
-                                    className={cn(
-                                        "p-1.5 rounded hover:bg-gray-200 transition-colors",
-                                        editor.isActive('bulletList') ? 'bg-gray-200 text-[#6B46FF]' : 'text-gray-600'
-                                    )}
-                                    aria-label="Bullet list"
-                                >
-                                    <List className="w-4 h-4" />
-                                </button>
-                                <button
-                                    onClick={() => editor.chain().focus().toggleOrderedList().run()}
-                                    className={cn(
-                                        "p-1.5 rounded hover:bg-gray-200 transition-colors",
-                                        editor.isActive('orderedList') ? 'bg-gray-200 text-[#6B46FF]' : 'text-gray-600'
-                                    )}
-                                    aria-label="Numbered list"
-                                >
-                                    <ListOrdered className="w-4 h-4" />
-                                </button>
-                                <div className="w-px h-4 bg-gray-300 mx-0.5" />
-
-                                {/* Paragraph Styles */}
-                                <div className="relative" ref={paragraphMenuRef}>
-                                    <button
-                                        onClick={() => setShowParagraphMenu(!showParagraphMenu)}
-                                        className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600 flex items-center gap-1"
-                                        aria-label="Paragraph styles"
-                                    >
-                                        <Type className="w-4 h-4" />
-                                        <ChevronDown className="w-3 h-3" />
-                                    </button>
-                                    {showParagraphMenu && (
-                                        <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-1 z-50 w-40">
-                                            {[1, 2, 3, 4].map(level => (
-                                                <button
-                                                    key={level}
-                                                    onClick={() => {
-                                                        editor.chain().focus().toggleHeading({ level: level as 1 | 2 | 3 | 4 }).run()
-                                                        setShowParagraphMenu(false)
-                                                    }}
-                                                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 rounded flex items-center gap-2"
-                                                >
-                                                    <span className={cn(
-                                                        "font-bold",
-                                                        level === 1 && "text-xl",
-                                                        level === 2 && "text-lg",
-                                                        level === 3 && "text-base",
-                                                        level === 4 && "text-sm"
-                                                    )}>H{level}</span>
-                                                    Heading {level}
-                                                </button>
-                                            ))}
-                                            <button
-                                                onClick={() => {
-                                                    editor.chain().focus().setParagraph().run()
-                                                    setShowParagraphMenu(false)
-                                                }}
-                                                className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 rounded"
-                                            >
-                                                Paragraph
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Font Size */}
-                                <div className="relative" ref={fontMenuRef}>
-                                    <button
-                                        onClick={() => setShowFontMenu(!showFontMenu)}
-                                        className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600 flex items-center gap-1"
-                                        aria-label="Font size"
-                                    >
-                                        <span className="text-xs">{fontSize}px</span>
-                                        <ChevronDown className="w-3 h-3" />
-                                    </button>
-                                    {showFontMenu && (
-                                        <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-1 z-50 max-h-60 overflow-y-auto">
-                                            {[12, 14, 16, 18, 20, 24, 30, 36, 48, 60, 72].map(size => (
-                                                <button
-                                                    key={size}
-                                                    onClick={() => {
-                                                        setFontSize(size)
-                                                        // Mock visual update
-                                                        showToast(`Font size updated to ${size}px`)
-                                                        setShowFontMenu(false)
-                                                    }}
-                                                    className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 rounded"
-                                                >
-                                                    {size}px
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="w-px h-4 bg-gray-300 mx-0.5" />
-
-                                {/* Alignment (Mocked) */}
-                                <div className="flex items-center gap-0.5">
-                                    <button
-                                        onClick={() => showToast('Aligned Left')}
-                                        className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
-                                        aria-label="Align left"
-                                    >
-                                        <AlignLeft className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                        onClick={() => showToast('Aligned Center')}
-                                        className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
-                                        aria-label="Align center"
-                                    >
-                                        <AlignCenter className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                        onClick={() => showToast('Aligned Right')}
-                                        className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
-                                        aria-label="Align right"
-                                    >
-                                        <AlignRight className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                        onClick={() => showToast('Justified')}
-                                        className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
-                                        aria-label="Align justify"
-                                    >
-                                        <AlignJustify className="w-4 h-4" />
-                                    </button>
-                                </div>
-
-                                {/* Insert Options */}
-                                <div className="w-px h-4 bg-gray-300 mx-0.5" />
-                                <button
-                                    onClick={() => {
-                                        editor.chain().focus().insertContent(`
+                        {/* Insert Options */}
+                        <div className="w-px h-4 bg-gray-300 mx-0.5" />
+                        <button
+                            onClick={() => {
+                                editor.chain().focus().insertContent(`
                             <table>
                               <tbody>
                                 <tr><td>Cell 1</td><td>Cell 2</td></tr>
@@ -997,435 +1003,435 @@ const Editor = () => {
                               </tbody>
                             </table>
                         `).run()
-                                        showToast('Inserted Table')
-                                    }}
-                                    className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
-                                    aria-label="Insert table"
-                                    title="Insert table"
-                                >
-                                    <Table className="w-4 h-4" />
-                                </button>
-                                <button
-                                    onClick={() => editor.chain().focus().insertContent(' $$ ').run()}
-                                    className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
-                                    aria-label="Insert equation"
-                                    title="Insert equation"
-                                >
-                                    <Sigma className="w-4 h-4" />
-                                </button>
-                                <button
-                                    className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
-                                    aria-label="Insert footnote"
-                                    title="Insert footnote"
-                                >
-                                    <FileText className="w-4 h-4" />
-                                </button>
+                                showToast('Inserted Table')
+                            }}
+                            className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
+                            aria-label="Insert table"
+                            title="Insert table"
+                        >
+                            <Table className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => editor.chain().focus().insertContent(' $$ ').run()}
+                            className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
+                            aria-label="Insert equation"
+                            title="Insert equation"
+                        >
+                            <Sigma className="w-4 h-4" />
+                        </button>
+                        <button
+                            className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
+                            aria-label="Insert footnote"
+                            title="Insert footnote"
+                        >
+                            <FileText className="w-4 h-4" />
+                        </button>
 
-                                <div className="w-px h-4 bg-gray-300 mx-0.5" />
+                        <div className="w-px h-4 bg-gray-300 mx-0.5" />
 
-                                {/* Demo Menu */}
-                                <div className="relative" ref={demoMenuRef}>
-                                    <button
-                                        onClick={() => setShowDemoMenu(!showDemoMenu)}
-                                        className="px-3 py-1.5 bg-purple-50 text-[#6B46FF] text-xs font-medium rounded-lg hover:bg-purple-100 transition-colors flex items-center gap-1"
-                                        aria-haspopup="true"
-                                        aria-expanded={showDemoMenu}
-                                        aria-label="Demo scenarios"
-                                    >
-                                        <Sparkles className="w-3 h-3" aria-hidden="true" />
-                                        Demo
-                                    </button>
-                                    {showDemoMenu && (
-                                        <div
-                                            className="absolute top-full right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-1 z-50 w-48"
-                                            role="menu"
-                                            aria-label="Select a demo scenario"
-                                        >
-                                            {Object.values(DEMO_SCENARIOS).map(scenario => (
-                                                <button
-                                                    key={scenario.id}
-                                                    onClick={() => loadDemoScenario(scenario.id)}
-                                                    className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded flex items-center gap-2"
-                                                    role="menuitem"
-                                                >
-                                                    <span className="w-2 h-2 rounded-full bg-[#6B46FF]" aria-hidden="true" />
-                                                    {scenario.title}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                                <button
-                                    onClick={() => editor.chain().focus().toggleBlockquote().run()}
-                                    className={cn(
-                                        "p-1.5 rounded hover:bg-gray-200 transition-colors",
-                                        editor.isActive('blockquote') ? 'bg-gray-200 text-[#6B46FF]' : 'text-gray-600'
-                                    )}
-                                    aria-label="Quote"
-                                    title="Quote"
+                        {/* Demo Menu */}
+                        <div className="relative" ref={demoMenuRef}>
+                            <button
+                                onClick={() => setShowDemoMenu(!showDemoMenu)}
+                                className="px-3 py-1.5 bg-purple-50 text-[#6B46FF] text-xs font-medium rounded-lg hover:bg-purple-100 transition-colors flex items-center gap-1"
+                                aria-haspopup="true"
+                                aria-expanded={showDemoMenu}
+                                aria-label="Demo scenarios"
+                            >
+                                <Sparkles className="w-3 h-3" aria-hidden="true" />
+                                Demo
+                            </button>
+                            {showDemoMenu && (
+                                <div
+                                    className="absolute top-full right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-1 z-50 w-48"
+                                    role="menu"
+                                    aria-label="Select a demo scenario"
                                 >
-                                    <Quote className="w-4 h-4" />
-                                </button>
-
-
-                                <div className="ml-auto flex items-center gap-2 text-[12px] text-[#6b6f76]">
-                                    <button
-                                        onClick={() => setShowVersionTimeline(!showVersionTimeline)}
-                                        className="flex items-center gap-1.5 hover:text-gray-800 transition-colors"
-                                    >
-                                        <History className="w-3.5 h-3.5" />
-                                        <span>
-                                            AutoSave {versions.length > 0 ? versions[0].timestamp : new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                                        </span>
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Glassmorphic Inline Toolbar */}
-                            {editor && (
-                                <BubbleMenu
-                                    editor={editor}
-                                    shouldShow={({ editor, view, state, from, to }) => {
-                                        const { selection } = state
-                                        const { empty } = selection
-                                        const text = state.doc.textBetween(from, to, ' ')
-                                        if (empty || !text.trim()) {
-                                            console.debug('trinka:popover-suppressed-no-selection')
-                                            return false
-                                        }
-                                        return true
-                                    }}
-                                    tippyOptions={{
-                                        duration: 100,
-                                        placement: 'top',
-                                        animation: 'fade',
-                                        interactive: true,
-                                        appendTo: () => editorRef.current || document.body,
-                                        offset: [0, 8],
-                                        zIndex: 100
-                                    }}
-                                >
-                                    <div
-                                        className="flex items-center gap-1 bg-white/90 backdrop-blur-lg shadow-lg border border-gray-200/50 rounded-full px-2 py-1 overflow-x-auto scrollbar-hide animate-in fade-in slide-in-from-bottom-2"
-                                        style={{
-                                            minHeight: '36px',
-                                            maxWidth: '90vw',
-                                            scrollbarWidth: 'none',
-                                            msOverflowStyle: 'none'
-                                        }}
-                                    >
+                                    {Object.values(DEMO_SCENARIOS).map(scenario => (
                                         <button
-                                            onClick={() => requestRewrite({ id: 'smart', label: 'Smart Edit', description: 'Auto-improve', mode: 'smart', tone: 'academic' })}
-                                            className="flex items-center gap-1 px-2 py-1 rounded-full bg-[#6B46FF]/10 hover:bg-[#6B46FF]/20 text-[#6B46FF] transition-colors group flex-shrink-0 border border-[#6B46FF]/20"
-                                            style={{ fontSize: '13px' }}
+                                            key={scenario.id}
+                                            onClick={() => loadDemoScenario(scenario.id)}
+                                            className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded flex items-center gap-2"
+                                            role="menuitem"
                                         >
-                                            <Sparkles className="w-3.5 h-3.5" />
-                                            <span className="font-semibold whitespace-nowrap">Smart Edit</span>
+                                            <span className="w-2 h-2 rounded-full bg-[#6B46FF]" aria-hidden="true" />
+                                            {scenario.title}
                                         </button>
-                                        <div className="w-px h-4 bg-gray-300 mx-1" />
-                                        {INLINE_ACTIONS.map(action => (
-                                            <button
-                                                key={action.id}
-                                                onClick={() => requestRewrite(action)}
-                                                className="flex items-center gap-1 px-2 py-1 rounded-full hover:bg-gray-100 transition-colors group flex-shrink-0"
-                                                style={{ fontSize: '13px' }}
-                                                aria-label={action.label}
-                                            >
-                                                <span className="font-medium text-gray-700 whitespace-nowrap">{action.label}</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                </BubbleMenu>
+                                    ))}
+                                </div>
                             )}
+                        </div>
+                        <button
+                            onClick={() => editor.chain().focus().toggleBlockquote().run()}
+                            className={cn(
+                                "p-1.5 rounded hover:bg-gray-200 transition-colors",
+                                editor.isActive('blockquote') ? 'bg-gray-200 text-[#6B46FF]' : 'text-gray-600'
+                            )}
+                            aria-label="Quote"
+                            title="Quote"
+                        >
+                            <Quote className="w-4 h-4" />
+                        </button>
 
-                            <EditorContent editor={editor} />
+
+                        <div className="ml-auto flex items-center gap-2 text-[12px] text-[#6b6f76]">
+                            <button
+                                onClick={() => setShowVersionTimeline(!showVersionTimeline)}
+                                className="flex items-center gap-1.5 hover:text-gray-800 transition-colors"
+                            >
+                                <History className="w-3.5 h-3.5" />
+                                <span>
+                                    AutoSave {versions.length > 0 ? versions[0].timestamp : new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                            </button>
                         </div>
                     </div>
 
-                    {/* Version Timeline Modal */}
-                    {showVersionTimeline && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm" onClick={() => setShowVersionTimeline(false)}>
-                            <div className="w-[500px] max-h-[80vh] bg-white rounded-xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden animate-in fade-in zoom-in-95" onClick={e => e.stopPropagation()}>
-                                <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50/50">
-                                    <h3 className="text-sm font-semibold text-gray-800">Version History</h3>
-                                    <button
-                                        onClick={() => setShowVersionTimeline(false)}
-                                        className="p-1.5 hover:bg-gray-200/50 rounded-lg transition-colors"
-                                    >
-                                        <X className="w-4 h-4 text-gray-500" />
-                                    </button>
-                                </div>
-                                <div className="p-4 overflow-y-auto space-y-3">
-                                    {versions.length === 0 ? (
-                                        <div className="text-center py-8 text-gray-500 text-sm">
-                                            <History className="w-8 h-8 mx-auto mb-2 opacity-20" />
-                                            <p>No versions yet</p>
-                                            <p className="text-xs opacity-60 mt-1">Edits will appear here automatically</p>
-                                        </div>
-                                    ) : (
-                                        versions.map(version => (
-                                            <div key={version.id} className="p-3 border border-gray-100 rounded-xl hover:bg-gray-50 group transition-all">
-                                                <div className="flex items-center justify-between text-sm mb-1">
-                                                    <span className="font-medium text-gray-900">{version.action}</span>
-                                                    <span className="text-xs text-gray-500">{version.timestamp}</span>
-                                                </div>
-                                                <button
-                                                    onClick={() => {
-                                                        showToast(`Restored version from ${version.timestamp}`)
-                                                        setShowVersionTimeline(false)
-                                                        if (editor) {
-                                                            editor.commands.focus()
-                                                        }
-                                                    }}
-                                                    className="w-full text-center text-xs text-[#6C2BD9] bg-[#6C2BD9]/5 hover:bg-[#6C2BD9]/10 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-all font-medium"
-                                                >
-                                                    Restore this version
-                                                </button>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Diff Preview Bubble - P0 Spec */}
-                    {preview && (
-                        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[640px] bg-white/95 backdrop-blur-lg border border-gray-200 shadow-2xl rounded-xl p-4 z-30 animate-in fade-in slide-in-from-bottom-4">
-                            <div className="flex items-center justify-between mb-3">
-                                <div>
-                                    <p className="text-[11px] uppercase tracking-wide text-[#6b6f76]">Diff preview</p>
-                                    <p className="text-[14px] font-semibold text-gray-800">{preview.label}</p>
-                                </div>
-                                <div className="flex items-center gap-2 text-[12px] text-[#6b6f76]">
-                                    {preview.status === 'loading' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                                    <span>{preview.status === 'ready' ? 'Ready to apply' : preview.status === 'loading' ? 'Streaming...' : 'Retry needed'}</span>
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3 text-[13px]">
-                                <div className="border border-gray-100 rounded-lg p-3 bg-gray-50/60 max-h-32 overflow-y-auto">
-                                    <p className="text-[11px] text-[#6b6f76] mb-1.5">Original</p>
-                                    <p className="text-gray-700 text-[13px] whitespace-pre-wrap leading-relaxed">{preview.original}</p>
-                                </div>
-                                <div className="border border-[#6B46FF]/20 rounded-lg p-3 bg-[#6B46FF]/5 max-h-32 overflow-y-auto">
-                                    <p className="text-[11px] text-[#6B46FF] mb-1.5 flex items-center gap-1">
-                                        <Sparkles className="w-3 h-3" />
-                                        Suggested
-                                    </p>
-                                    <p className="text-gray-800 text-[13px] whitespace-pre-wrap leading-relaxed">
-                                        {preview.status === 'loading' ? 'Generating better phrasing…' : (
-                                            <span>
-                                                {preview.suggestion.split(' ').map((word, i) => (
-                                                    <span
-                                                        key={i}
-                                                        className={preview.changedTokens?.some(t => t.from <= i && t.to >= i) ? 'bg-[#FDE68A]' : ''}
-                                                    >
-                                                        {word}{' '}
-                                                    </span>
-                                                ))}
-                                            </span>
-                                        )}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-between mt-4">
-                                {preview.status === 'error' && (
-                                    <div className="flex items-center gap-1.5 text-[12px] text-amber-600">
-                                        <AlertTriangle className="w-3.5 h-3.5" />
-                                        We could not complete that action. Please try again.
-                                    </div>
-                                )}
-                                <div className="ml-auto flex items-center gap-2">
-                                    <button
-                                        onClick={discardSuggestion}
-                                        className="px-3.5 py-2 text-[13px] font-medium text-gray-600 hover:text-gray-800 transition-colors"
-                                    >
-                                        Reject
-                                    </button>
-                                    <button
-                                        disabled={preview.status !== 'ready'}
-                                        onClick={applySuggestion}
-                                        className="px-3.5 py-2 bg-[#6B46FF] text-white text-[13px] font-semibold rounded-lg shadow-sm disabled:bg-purple-300 flex items-center gap-1.5 hover:bg-[#6B46FF]/90 transition-colors"
-                                    >
-                                        <Check className="w-3.5 h-3.5" />
-                                        Apply
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Grammar/Tone Hover Bubble - anchored with viewport-aware placement */}
-                    {/* Grammar/Tone Hover Bubble - Replaced by PopoverManager */}
-
-                    {/* Toast with Undo - P0 Spec */}
-                    {toast && (
-                        <div className="fixed bottom-6 left-6 bg-gray-900 text-white text-[13px] px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-3 z-40 animate-in fade-in slide-in-from-bottom-2">
-                            <span>{toast.message}</span>
-                            {toast.undo && (
+                    {/* Glassmorphic Inline Toolbar */}
+                    {editor && (
+                        <BubbleMenu
+                            editor={editor}
+                            shouldShow={({ editor, view, state, from, to }) => {
+                                const { selection } = state
+                                const { empty } = selection
+                                const text = state.doc.textBetween(from, to, ' ')
+                                if (empty || !text.trim()) {
+                                    console.debug('trinka:popover-suppressed-no-selection')
+                                    return false
+                                }
+                                return true
+                            }}
+                            tippyOptions={{
+                                duration: 100,
+                                placement: 'top',
+                                animation: 'fade',
+                                interactive: true,
+                                appendTo: () => editorRef.current || document.body,
+                                offset: [0, 8],
+                                zIndex: 100
+                            }}
+                        >
+                            <div
+                                className="flex items-center gap-1 bg-white/90 backdrop-blur-lg shadow-lg border border-gray-200/50 rounded-full px-2 py-1 overflow-x-auto scrollbar-hide animate-in fade-in slide-in-from-bottom-2"
+                                style={{
+                                    minHeight: '36px',
+                                    maxWidth: '90vw',
+                                    scrollbarWidth: 'none',
+                                    msOverflowStyle: 'none'
+                                }}
+                            >
                                 <button
-                                    onClick={() => {
-                                        toast.undo?.()
-                                        setToast(null)
-                                    }}
-                                    className="text-[#6B46FF] hover:text-[#6B46FF]/80 font-medium flex items-center gap-1"
+                                    onClick={() => requestRewrite({ id: 'smart', label: 'Smart Edit', description: 'Auto-improve', mode: 'smart', tone: 'academic' })}
+                                    className="flex items-center gap-1 px-2 py-1 rounded-full bg-[#6B46FF]/10 hover:bg-[#6B46FF]/20 text-[#6B46FF] transition-colors group flex-shrink-0 border border-[#6B46FF]/20"
+                                    style={{ fontSize: '13px' }}
                                 >
-                                    <Undo2 className="w-3.5 h-3.5" />
-                                    Undo
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    <span className="font-semibold whitespace-nowrap">Smart Edit</span>
                                 </button>
+                                <div className="w-px h-4 bg-gray-300 mx-1" />
+                                {INLINE_ACTIONS.map(action => (
+                                    <button
+                                        key={action.id}
+                                        onClick={() => requestRewrite(action)}
+                                        className="flex items-center gap-1 px-2 py-1 rounded-full hover:bg-gray-100 transition-colors group flex-shrink-0"
+                                        style={{ fontSize: '13px' }}
+                                        aria-label={action.label}
+                                    >
+                                        <span className="font-medium text-gray-700 whitespace-nowrap">{action.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </BubbleMenu>
+                    )}
+
+                    <EditorContent editor={editor} />
+                </div>
+            </div>
+
+            {/* Version Timeline Modal */}
+            {showVersionTimeline && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm" onClick={() => setShowVersionTimeline(false)}>
+                    <div className="w-[500px] max-h-[80vh] bg-white rounded-xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden animate-in fade-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50/50">
+                            <h3 className="text-sm font-semibold text-gray-800">Version History</h3>
+                            <button
+                                onClick={() => setShowVersionTimeline(false)}
+                                className="p-1.5 hover:bg-gray-200/50 rounded-lg transition-colors"
+                            >
+                                <X className="w-4 h-4 text-gray-500" />
+                            </button>
+                        </div>
+                        <div className="p-4 overflow-y-auto space-y-3">
+                            {versions.length === 0 ? (
+                                <div className="text-center py-8 text-gray-500 text-sm">
+                                    <History className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                                    <p>No versions yet</p>
+                                    <p className="text-xs opacity-60 mt-1">Edits will appear here automatically</p>
+                                </div>
+                            ) : (
+                                versions.map(version => (
+                                    <div key={version.id} className="p-3 border border-gray-100 rounded-xl hover:bg-gray-50 group transition-all">
+                                        <div className="flex items-center justify-between text-sm mb-1">
+                                            <span className="font-medium text-gray-900">{version.action}</span>
+                                            <span className="text-xs text-gray-500">{version.timestamp}</span>
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                showToast(`Restored version from ${version.timestamp}`)
+                                                setShowVersionTimeline(false)
+                                                if (editor) {
+                                                    editor.commands.focus()
+                                                }
+                                            }}
+                                            className="w-full text-center text-xs text-[#6C2BD9] bg-[#6C2BD9]/5 hover:bg-[#6C2BD9]/10 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-all font-medium"
+                                        >
+                                            Restore this version
+                                        </button>
+                                    </div>
+                                ))
                             )}
                         </div>
-                    )}
+                    </div>
+                </div>
+            )}
 
-                    {/* Upload Modal */}
-                    {showUploadModal && (
-                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowUploadModal(false)}>
-                            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-                                <div className="flex items-center justify-between mb-4">
-                                    <h3 className="text-lg font-semibold text-gray-800">Upload Files</h3>
-                                    <button
-                                        onClick={() => setShowUploadModal(false)}
-                                        className="p-1 hover:bg-gray-100 rounded transition-colors"
-                                    >
-                                        <X className="w-5 h-5" />
-                                    </button>
-                                </div>
-                                <div
-                                    className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-[#6B46FF] transition-colors cursor-pointer"
-                                    onDrop={(e) => {
-                                        e.preventDefault()
-                                        handleFileUpload(e.dataTransfer.files)
-                                    }}
-                                    onDragOver={(e) => e.preventDefault()}
-                                >
-                                    <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                                    <p className="text-gray-600 mb-2">Drag and drop files here</p>
-                                    <p className="text-sm text-gray-400 mb-4">or</p>
-                                    <label className="inline-block px-4 py-2 bg-[#6B46FF] text-white rounded-lg cursor-pointer hover:bg-[#6B46FF]/90 transition-colors">
-                                        Browse Files
-                                        <input
-                                            type="file"
-                                            multiple
-                                            accept=".jpg,.jpeg,.png,.pdf,.docx,.pptx"
-                                            className="hidden"
-                                            onChange={(e) => handleFileUpload(e.target.files)}
-                                        />
-                                    </label>
-                                    <p className="text-xs text-gray-400 mt-2">Supports: JPG, PNG, PDF, DOCX, PPTX</p>
-                                </div>
-                                {uploadedFiles.length > 0 && (
-                                    <div className="mt-4 space-y-2">
-                                        <p className="text-sm font-medium text-gray-700">Uploaded Files:</p>
-                                        {uploadedFiles.map((file, idx) => (
-                                            <div key={idx} className="flex items-center justify-between p-2 border border-gray-200 rounded-lg">
-                                                <div className="flex items-center gap-2">
-                                                    <FileText className="w-4 h-4 text-gray-400" />
-                                                    <span className="text-sm text-gray-700">{file.name}</span>
-                                                    <span className="text-xs text-gray-400">({(file.size / 1024).toFixed(1)} KB)</span>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <button
-                                                        onClick={() => {
-                                                            // Insert into document
-                                                            if (editor) {
-                                                                editor.commands.insertContent(`[File: ${file.name}]`)
-                                                            }
-                                                            setShowUploadModal(false)
-                                                        }}
-                                                        className="px-2 py-1 text-xs text-[#6B46FF] hover:bg-[#6B46FF]/10 rounded transition-colors"
-                                                    >
-                                                        Insert
-                                                    </button>
-                                                    <button
-                                                        onClick={() => setUploadedFiles(prev => prev.filter((_, i) => i !== idx))}
-                                                        className="p-1 hover:bg-gray-100 rounded transition-colors"
-                                                    >
-                                                        <X className="w-4 h-4 text-gray-400" />
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
+            {/* Diff Preview Bubble - P0 Spec */}
+            {preview && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[640px] bg-white/95 backdrop-blur-lg border border-gray-200 shadow-2xl rounded-xl p-4 z-30 animate-in fade-in slide-in-from-bottom-4">
+                    <div className="flex items-center justify-between mb-3">
+                        <div>
+                            <p className="text-[11px] uppercase tracking-wide text-[#6b6f76]">Diff preview</p>
+                            <p className="text-[14px] font-semibold text-gray-800">{preview.label}</p>
                         </div>
-                    )}
+                        <div className="flex items-center gap-2 text-[12px] text-[#6b6f76]">
+                            {preview.status === 'loading' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                            <span>{preview.status === 'ready' ? 'Ready to apply' : preview.status === 'loading' ? 'Streaming...' : 'Retry needed'}</span>
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-[13px]">
+                        <div className="border border-gray-100 rounded-lg p-3 bg-gray-50/60 max-h-32 overflow-y-auto">
+                            <p className="text-[11px] text-[#6b6f76] mb-1.5">Original</p>
+                            <p className="text-gray-700 text-[13px] whitespace-pre-wrap leading-relaxed">{preview.original}</p>
+                        </div>
+                        <div className="border border-[#6B46FF]/20 rounded-lg p-3 bg-[#6B46FF]/5 max-h-32 overflow-y-auto">
+                            <p className="text-[11px] text-[#6B46FF] mb-1.5 flex items-center gap-1">
+                                <Sparkles className="w-3 h-3" />
+                                Suggested
+                            </p>
+                            <p className="text-gray-800 text-[13px] whitespace-pre-wrap leading-relaxed">
+                                {preview.status === 'loading' ? 'Generating better phrasing…' : (
+                                    <span>
+                                        {preview.suggestion.split(' ').map((word, i) => (
+                                            <span
+                                                key={i}
+                                                className={preview.changedTokens?.some(t => t.from <= i && t.to >= i) ? 'bg-[#FDE68A]' : ''}
+                                            >
+                                                {word}{' '}
+                                            </span>
+                                        ))}
+                                    </span>
+                                )}
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex items-center justify-between mt-4">
+                        {preview.status === 'error' && (
+                            <div className="flex items-center gap-1.5 text-[12px] text-amber-600">
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                                We could not complete that action. Please try again.
+                            </div>
+                        )}
+                        <div className="ml-auto flex items-center gap-2">
+                            <button
+                                onClick={discardSuggestion}
+                                className="px-3.5 py-2 text-[13px] font-medium text-gray-600 hover:text-gray-800 transition-colors"
+                            >
+                                Reject
+                            </button>
+                            <button
+                                disabled={preview.status !== 'ready'}
+                                onClick={applySuggestion}
+                                className="px-3.5 py-2 bg-[#6B46FF] text-white text-[13px] font-semibold rounded-lg shadow-sm disabled:bg-purple-300 flex items-center gap-1.5 hover:bg-[#6B46FF]/90 transition-colors"
+                            >
+                                <Check className="w-3.5 h-3.5" />
+                                Apply
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
-                    {/* Suggestions Modal */}
-                    <SuggestionsModal
-                        isOpen={showSuggestionsModal}
-                        onClose={() => setShowSuggestionsModal(false)}
-                        suggestions={topSuggestions}
-                        docId="current-doc"
-                        onApply={async (id) => {
-                            try {
-                                const response = await fetch(trinkaApi('/api/recommendations/apply'), {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                        userId: 'current-user',
-                                        docId: 'current-doc',
-                                        recommendationId: id
-                                    })
-                                })
-                                if (response.ok) {
-                                    const data = await response.json()
-                                    const suggestion = topSuggestions.find(s => s.id === id)
-                                    if (suggestion) {
-                                        showToast(`Applied: ${suggestion.title}. Undo`, async () => {
-                                            await fetch(trinkaApi('/api/recommendations/undo'), {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({
-                                                    userId: 'current-user',
-                                                    docId: 'current-doc',
-                                                    undoToken: data.undoToken
-                                                })
-                                            })
-                                        })
-                                    }
-                                    setTopSuggestions(prev => prev.filter(s => s.id !== id))
-                                }
-                            } catch (error) {
-                                console.error('Apply failed:', error)
-                            }
-                        }}
-                        onDismiss={async (id) => {
-                            try {
-                                await fetch(trinkaApi('/api/recommendations/dismiss'), {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                        userId: 'current-user',
-                                        docId: 'current-doc',
-                                        recommendationId: id
-                                    })
-                                })
-                                setTopSuggestions(prev => prev.filter(s => s.id !== id))
-                            } catch (error) {
-                                console.error('Dismiss failed:', error)
-                            }
-                        }}
-                        onPreview={(rec) => {
-                            // TODO: Open preview modal with diff view
-                            console.log('Preview:', rec.id)
-                        }}
-                    />
-                    <GoalsModal
-                        isOpen={showGoalsModal}
-                        onClose={() => setShowGoalsModal(false)}
-                        initialGoals={goals}
-                        onSave={handleSaveGoals}
-                    />
-                    {selectedFactorForImprovement && (
-                        <ImprovementSuggestionsModal
-                            factor={selectedFactorForImprovement}
-                            onClose={() => setSelectedFactorForImprovement(null)}
-                            onApplyFix={handleApplyQuickFix}
-                        />
+            {/* Grammar/Tone Hover Bubble - anchored with viewport-aware placement */}
+            {/* Grammar/Tone Hover Bubble - Replaced by PopoverManager */}
+
+            {/* Toast with Undo - P0 Spec */}
+            {toast && (
+                <div className="fixed bottom-6 left-6 bg-gray-900 text-white text-[13px] px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-3 z-40 animate-in fade-in slide-in-from-bottom-2">
+                    <span>{toast.message}</span>
+                    {toast.undo && (
+                        <button
+                            onClick={() => {
+                                toast.undo?.()
+                                setToast(null)
+                            }}
+                            className="text-[#6B46FF] hover:text-[#6B46FF]/80 font-medium flex items-center gap-1"
+                        >
+                            <Undo2 className="w-3.5 h-3.5" />
+                            Undo
+                        </button>
                     )}
                 </div>
-            )
-        }
+            )}
 
-        export default Editor
+            {/* Upload Modal */}
+            {showUploadModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowUploadModal(false)}>
+                    <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-semibold text-gray-800">Upload Files</h3>
+                            <button
+                                onClick={() => setShowUploadModal(false)}
+                                className="p-1 hover:bg-gray-100 rounded transition-colors"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <div
+                            className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-[#6B46FF] transition-colors cursor-pointer"
+                            onDrop={(e) => {
+                                e.preventDefault()
+                                handleFileUpload(e.dataTransfer.files)
+                            }}
+                            onDragOver={(e) => e.preventDefault()}
+                        >
+                            <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                            <p className="text-gray-600 mb-2">Drag and drop files here</p>
+                            <p className="text-sm text-gray-400 mb-4">or</p>
+                            <label className="inline-block px-4 py-2 bg-[#6B46FF] text-white rounded-lg cursor-pointer hover:bg-[#6B46FF]/90 transition-colors">
+                                Browse Files
+                                <input
+                                    type="file"
+                                    multiple
+                                    accept=".jpg,.jpeg,.png,.pdf,.docx,.pptx"
+                                    className="hidden"
+                                    onChange={(e) => handleFileUpload(e.target.files)}
+                                />
+                            </label>
+                            <p className="text-xs text-gray-400 mt-2">Supports: JPG, PNG, PDF, DOCX, PPTX</p>
+                        </div>
+                        {uploadedFiles.length > 0 && (
+                            <div className="mt-4 space-y-2">
+                                <p className="text-sm font-medium text-gray-700">Uploaded Files:</p>
+                                {uploadedFiles.map((file, idx) => (
+                                    <div key={idx} className="flex items-center justify-between p-2 border border-gray-200 rounded-lg">
+                                        <div className="flex items-center gap-2">
+                                            <FileText className="w-4 h-4 text-gray-400" />
+                                            <span className="text-sm text-gray-700">{file.name}</span>
+                                            <span className="text-xs text-gray-400">({(file.size / 1024).toFixed(1)} KB)</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => {
+                                                    // Insert into document
+                                                    if (editor) {
+                                                        editor.commands.insertContent(`[File: ${file.name}]`)
+                                                    }
+                                                    setShowUploadModal(false)
+                                                }}
+                                                className="px-2 py-1 text-xs text-[#6B46FF] hover:bg-[#6B46FF]/10 rounded transition-colors"
+                                            >
+                                                Insert
+                                            </button>
+                                            <button
+                                                onClick={() => setUploadedFiles(prev => prev.filter((_, i) => i !== idx))}
+                                                className="p-1 hover:bg-gray-100 rounded transition-colors"
+                                            >
+                                                <X className="w-4 h-4 text-gray-400" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Suggestions Modal */}
+            <SuggestionsModal
+                isOpen={showSuggestionsModal}
+                onClose={() => setShowSuggestionsModal(false)}
+                suggestions={topSuggestions}
+                docId="current-doc"
+                onApply={async (id) => {
+                    try {
+                        const response = await fetch(trinkaApi('/api/recommendations/apply'), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                userId: 'current-user',
+                                docId: 'current-doc',
+                                recommendationId: id
+                            })
+                        })
+                        if (response.ok) {
+                            const data = await response.json()
+                            const suggestion = topSuggestions.find(s => s.id === id)
+                            if (suggestion) {
+                                showToast(`Applied: ${suggestion.title}. Undo`, async () => {
+                                    await fetch(trinkaApi('/api/recommendations/undo'), {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            userId: 'current-user',
+                                            docId: 'current-doc',
+                                            undoToken: data.undoToken
+                                        })
+                                    })
+                                })
+                            }
+                            setTopSuggestions(prev => prev.filter(s => s.id !== id))
+                        }
+                    } catch (error) {
+                        console.error('Apply failed:', error)
+                    }
+                }}
+                onDismiss={async (id) => {
+                    try {
+                        await fetch(trinkaApi('/api/recommendations/dismiss'), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                userId: 'current-user',
+                                docId: 'current-doc',
+                                recommendationId: id
+                            })
+                        })
+                        setTopSuggestions(prev => prev.filter(s => s.id !== id))
+                    } catch (error) {
+                        console.error('Dismiss failed:', error)
+                    }
+                }}
+                onPreview={(rec) => {
+                    // TODO: Open preview modal with diff view
+                    console.log('Preview:', rec.id)
+                }}
+            />
+            <GoalsModal
+                isOpen={showGoalsModal}
+                onClose={() => setShowGoalsModal(false)}
+                initialGoals={goals}
+                onSave={handleSaveGoals}
+            />
+            {selectedFactorForImprovement && (
+                <ImprovementSuggestionsModal
+                    factor={selectedFactorForImprovement}
+                    onClose={() => setSelectedFactorForImprovement(null)}
+                    onApplyFix={handleApplyQuickFix}
+                />
+            )}
+        </div>
+    )
+}
+
+export default Editor
