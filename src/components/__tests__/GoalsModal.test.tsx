@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
-import GoalsModal, { Goals } from '../GoalsModal'
+import GoalsModal, { type Goals } from '../GoalsModal'
 
 describe('GoalsModal', () => {
     const defaultGoals: Goals = {

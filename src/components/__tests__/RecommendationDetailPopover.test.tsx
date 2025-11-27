@@ -23,7 +23,7 @@ describe('RecommendationDetailPopover', () => {
     const mockOnDismiss = vi.fn()
 
     beforeEach(() => {
-        (global as any).fetch = vi.fn(() =>
+        (globalThis as any).fetch = vi.fn(() =>
             Promise.resolve({
                 ok: true,
                 json: () => Promise.resolve({}),

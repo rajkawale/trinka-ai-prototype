@@ -54,7 +54,6 @@ export const PopoverProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         const popoverRect = popoverRef.current.getBoundingClientRect()
         const viewportWidth = window.innerWidth
-        const viewportHeight = window.innerHeight
         const offset = options.offset || 8 // Default 8px offset
 
         // Default to top centered

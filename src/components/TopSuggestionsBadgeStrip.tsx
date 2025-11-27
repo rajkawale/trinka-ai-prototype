@@ -123,7 +123,6 @@ const TopSuggestionsBadgeStrip = ({
                             <RecommendationDetailPopover
                                 recommendation={suggestion}
                                 docId={docId}
-                                anchorElement={badgeRefs.current[index]!}
                                 onClose={() => setOpenPopoverIndex(null)}
                                 onApply={onApply}
                                 onDismiss={onDismiss}
@@ -156,7 +155,7 @@ const TopSuggestionsBadgeStrip = ({
                         {hoveredIndex! + 1}. {currentTooltip.title}
                     </div>
                     <div className="text-[12px] text-gray-600 mb-3 line-clamp-2">
-                        {currentTooltip.summary.length > 80 
+                        {currentTooltip.summary.length > 80
                             ? currentTooltip.summary.substring(0, 80) + '...'
                             : currentTooltip.summary}
                     </div>

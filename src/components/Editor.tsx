@@ -5,16 +5,14 @@ import BubbleMenuExtension from '@tiptap/extension-bubble-menu'
 import { GrammarToneExtension } from '../extensions/GrammarToneExtension'
 import type { GrammarToneIssue } from '../extensions/GrammarToneExtension'
 import { cn, trinkaApi } from '../lib/utils'
-import { DEMO_SCENARIOS, type DemoScenario } from '../lib/demoScenarios'
+import { DEMO_SCENARIOS } from '../lib/demoScenarios'
 import GoalsModal, { type Goals } from './GoalsModal'
 import DocumentHealthTopSuggestionRow from './DocumentHealthTopSuggestionRow'
 import SuggestionsModal from './SuggestionsModal'
 import { usePopover } from './PopoverManager'
 import RecommendationDetailPopover from './RecommendationDetailPopover'
-import RecommendationListPopover from './RecommendationListPopover'
 import type { Recommendation, ActionType } from './RecommendationCard'
 import { useClickOutside } from '../hooks/useClickOutside'
-import { useDebounce } from '../hooks/useDebounce'
 import ImprovementSuggestionsModal from './ImprovementSuggestionsModal'
 import {
     Bold,
@@ -102,6 +100,7 @@ const createRequestId = () => {
 }
 
 const Editor = () => {
+    const docId = 'current-doc'
     const [outline, setOutline] = useState<OutlineItem[]>([])
     const [qualitySignals, setQualitySignals] = useState<QualitySignal[]>([
         { label: 'Tone', value: 'Stable', status: 'success' },
@@ -143,7 +142,6 @@ const Editor = () => {
     const fontMenuRef = useRef<HTMLDivElement>(null)
     const paragraphMenuRef = useRef<HTMLDivElement>(null)
     const demoMenuRef = useRef<HTMLDivElement>(null)
-    const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     useClickOutside(fontMenuRef, () => setShowFontMenu(false))
     useClickOutside(paragraphMenuRef, () => setShowParagraphMenu(false))
@@ -224,7 +222,6 @@ const Editor = () => {
         // Calculate metrics based on Goals
         let toneStatus = 'Stable'
         let clarityStatus = 'Crisp'
-        let readabilityStatus = 'Good'
 
         // Formality Logic
         if (goals.formality === 'formal') {
@@ -232,18 +229,6 @@ const Editor = () => {
         } else if (goals.formality === 'casual') {
             toneStatus = words % 5 === 0 ? 'Casual' : 'Too Stiff'
         }
-
-        // Audience Logic
-        if (goals.audience === 'expert') {
-            readabilityStatus = words > 150 ? 'Complex (Good)' : 'Too Simple'
-        } else if (goals.audience === 'student') {
-            readabilityStatus = words > 100 ? 'Hard' : 'Good'
-        }
-
-        // Domain Logic
-        const integrityStatus = goals.domain === 'academic' ? (words % 7 ? 'Safe' : 'Review Required') : 'N/A'
-
-        const coherenceStatus = words > 200 ? (words % 2 ? 'High' : 'Medium') : 'High'
 
         setWordCount(words)
         const readingTimeMinutes = Math.ceil(words / 200)
@@ -1177,7 +1162,7 @@ const Editor = () => {
                     {editor && (
                         <BubbleMenu
                             editor={editor}
-                            shouldShow={({ editor, view, state, from, to }) => {
+                            shouldShow={({ state, from, to }) => {
                                 const { selection } = state
                                 const { empty } = selection
                                 const text = state.doc.textBetween(from, to, ' ')
