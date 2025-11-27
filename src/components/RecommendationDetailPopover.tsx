@@ -141,12 +141,38 @@ const RecommendationDetailPopover = ({
             if (e.key === 'Tab') {
                 e.preventDefault()
                 handleApply()
+            } else if (e.key === 'Escape') {
+                e.preventDefault()
+                console.debug('trinka:popover_close', 'escape')
+                onClose()
+            } else if (e.key === 'Enter') {
+                e.preventDefault()
+                handleApply()
+            } else if (e.key === 'ArrowLeft') {
+                e.preventDefault()
+                if (currentVersionIndex > 0) {
+                    setCurrentVersionIndex(prev => prev - 1)
+                }
+            } else if (e.key === 'ArrowRight') {
+                e.preventDefault()
+                if (currentVersionIndex < suggestionHistory.length - 1) {
+                    setCurrentVersionIndex(prev => prev + 1)
+                }
             }
         }
 
         window.addEventListener('keydown', handleKeyDown)
         return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [handleApply])
+    }, [handleApply, onClose, currentVersionIndex, suggestionHistory.length])
+
+    // Auto-focus first actionable element
+    useEffect(() => {
+        // Simple focus management - could be enhanced with refs
+        const dialog = document.querySelector('[role="dialog"]') as HTMLElement
+        if (dialog) {
+            dialog.focus()
+        }
+    }, [])
 
     const actionColor = recommendation.actionType === 'rewrite' || recommendation.actionType === 'tighten'
         ? 'text-purple-600 bg-purple-50'
