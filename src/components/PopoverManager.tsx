@@ -145,7 +145,7 @@ export const PopoverProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         setIsOpen(false)
         setAnchor(null)
-        console.debug('trinka: popover_close', { reason })
+        console.debug('trinka:popover_closed_reason', reason)
         if (options.onClose) options.onClose()
     }, [options])
 
@@ -153,24 +153,26 @@ export const PopoverProvider: React.FC<{ children: React.ReactNode }> = ({ child
     useEffect(() => {
         if (!isOpen || !options.closeOnOutsideClick) return
 
-        const handleClickOutside = (event: MouseEvent) => {
+        const handleClickOutside = (event: PointerEvent) => {
+            // Use composedPath for shadow DOM / robust detection
+            const path = event.composedPath()
             const target = event.target as Node
 
             // Don't close if clicking inside popover
-            if (popoverRef.current && popoverRef.current.contains(target)) {
+            if (popoverRef.current && path.includes(popoverRef.current)) {
                 return
             }
 
             // Don't close if clicking the anchor (if it's an element)
-            if (anchor instanceof HTMLElement && anchor.contains(target)) {
+            if (anchor instanceof HTMLElement && (path.includes(anchor) || anchor.contains(target))) {
                 return
             }
 
             closePopover('outside-click')
         }
 
-        document.addEventListener('mousedown', handleClickOutside)
-        return () => document.removeEventListener('mousedown', handleClickOutside)
+        document.addEventListener('pointerdown', handleClickOutside)
+        return () => document.removeEventListener('pointerdown', handleClickOutside)
     }, [isOpen, options.closeOnOutsideClick, anchor, closePopover])
 
     // Escape key

@@ -220,7 +220,10 @@ const RecommendationDetailPopover = ({
                     )}
                 </div>
                 <button
-                    onClick={onClose}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        onClose()
+                    }}
                     className="text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-200/50 transition-colors"
                 >
                     <X size={14} />
