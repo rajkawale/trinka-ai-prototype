@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { X, Trash2, MoreHorizontal, ArrowRight, RotateCw, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { Recommendation } from './RecommendationCard'
 import { trinkaApi, cn } from '../lib/utils'
@@ -183,6 +183,19 @@ const RecommendationDetailPopover = ({
             setCurrentVersionIndex(currentVersionIndex + 1)
         }
     }
+
+    // Handle keyboard shortcuts
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Tab') {
+                e.preventDefault()
+                handleApply()
+            }
+        }
+
+        window.addEventListener('keydown', handleKeyDown)
+        return () => window.removeEventListener('keydown', handleKeyDown)
+    }, [handleApply])
 
     const actionColor = recommendation.actionType === 'rewrite' || recommendation.actionType === 'tighten'
         ? 'text-purple-600 bg-purple-50'
