@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, forwardRef, useImperativeHandle } from 'react'
+import { useEffect, useState, useCallback, useRef, forwardRef, useImperativeHandle, type ForwardedRef } from 'react'
 import { useEditor, EditorContent, BubbleMenu } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import BubbleMenuExtension from '@tiptap/extension-bubble-menu'
@@ -9,22 +9,19 @@ import { DEMO_SCENARIOS } from '../lib/demoScenarios'
 import GoalsModal, { type Goals } from './GoalsModal'
 import DocumentHealthTopSuggestionRow from './DocumentHealthTopSuggestionRow'
 import SuggestionsModal from './SuggestionsModal'
+import ImprovementSuggestionsModal from './ImprovementSuggestionsModal'
 import { usePopover } from './PopoverManager'
 import RecommendationDetailPopover from './RecommendationDetailPopover'
 import type { Recommendation, ActionType } from './RecommendationCard'
 import { useClickOutside } from '../hooks/useClickOutside'
-import ImprovementSuggestionsModal from './ImprovementSuggestionsModal'
 import {
     Bold,
     Italic,
     List,
     ListOrdered,
-    Sparkles,
-    BookMarked,
+    LayoutTemplate,
     Check,
-    X,
-    AlertTriangle,
-    Loader2,
+    Sparkles,
     History,
     Undo2,
     Type,
@@ -41,23 +38,27 @@ import {
     AlignRight,
     AlignJustify,
     Sigma,
-    Target
+    Target,
+    BookMarked,
+    X,
+    AlertTriangle,
+    Loader2
 } from 'lucide-react'
 
-type OutlineItem = {
+interface OutlineItem {
     id: string
     label: string
     level: number
     position: number
 }
 
-type QualitySignal = {
+interface QualitySignal {
     label: string
     value: string
     status: 'success' | 'warning' | 'error' | 'info'
 }
 
-type PreviewState = {
+interface PreviewState {
     id: string
     suggestion: string
     range: { from: number; to: number }
@@ -68,7 +69,7 @@ type PreviewState = {
     changedTokens?: { from: number; to: number }[]
 }
 
-type VersionSnapshot = {
+interface VersionSnapshot {
     id: string
     timestamp: string
     action: string
@@ -109,7 +110,8 @@ interface EditorProps {
     onTriggerCopilot?: (initialMessage?: string) => void
 }
 
-const Editor = forwardRef<EditorRef, EditorProps>(({ onTriggerCopilot }, ref) => {
+const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => {
+    const { onTriggerCopilot } = props
     const docId = 'current-doc'
     const [outline, setOutline] = useState<OutlineItem[]>([])
     const [qualitySignals, setQualitySignals] = useState<QualitySignal[]>([
@@ -1091,14 +1093,15 @@ const Editor = forwardRef<EditorRef, EditorProps>(({ onTriggerCopilot }, ref) =>
                                 <ChevronDown className="w-3 h-3" />
                             </button>
                             {showFontMenu && (
-                                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-1 z-50 max-h-60 overflow-y-auto">
-                                    {[12, 14, 16, 18, 20, 24, 30, 36, 48, 60, 72].map(size => (
+                                <div
+                                    ref={fontMenuRef}
+                                    className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-1 z-50 w-32"
+                                >
+                                    {[12, 14, 16, 18, 20, 24, 30].map(size => (
                                         <button
                                             key={size}
                                             onClick={() => {
                                                 setFontSize(size)
-                                                // Mock visual update
-                                                showToast(`Font size updated to ${size}px`)
                                                 setShowFontMenu(false)
                                             }}
                                             className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 rounded"
@@ -1116,6 +1119,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({ onTriggerCopilot }, ref) =>
                         <div className="flex items-center gap-0.5">
                             <button
                                 onClick={() => showToast('Aligned Left')}
+                                onMouseDown={(e) => e.preventDefault()}
                                 className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
                                 aria-label="Align left"
                             >
@@ -1123,6 +1127,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({ onTriggerCopilot }, ref) =>
                             </button>
                             <button
                                 onClick={() => showToast('Aligned Center')}
+                                onMouseDown={(e) => e.preventDefault()}
                                 className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
                                 aria-label="Align center"
                             >
@@ -1130,6 +1135,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({ onTriggerCopilot }, ref) =>
                             </button>
                             <button
                                 onClick={() => showToast('Aligned Right')}
+                                onMouseDown={(e) => e.preventDefault()}
                                 className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
                                 aria-label="Align right"
                             >
@@ -1137,6 +1143,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({ onTriggerCopilot }, ref) =>
                             </button>
                             <button
                                 onClick={() => showToast('Justified')}
+                                onMouseDown={(e) => e.preventDefault()}
                                 className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
                                 aria-label="Align justify"
                             >
@@ -1158,6 +1165,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({ onTriggerCopilot }, ref) =>
                         `).run()
                                 showToast('Inserted Table')
                             }}
+                            onMouseDown={(e) => e.preventDefault()}
                             className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
                             aria-label="Insert table"
                             title="Insert table"
@@ -1166,6 +1174,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({ onTriggerCopilot }, ref) =>
                         </button>
                         <button
                             onClick={() => editor.chain().focus().insertContent(' $$ ').run()}
+                            onMouseDown={(e) => e.preventDefault()}
                             className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
                             aria-label="Insert equation"
                             title="Insert equation"
@@ -1173,6 +1182,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({ onTriggerCopilot }, ref) =>
                             <Sigma className="w-4 h-4" />
                         </button>
                         <button
+                            onMouseDown={(e) => e.preventDefault()}
                             className="p-1.5 rounded hover:bg-gray-200 transition-colors text-gray-600"
                             aria-label="Insert footnote"
                             title="Insert footnote"
@@ -1186,6 +1196,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({ onTriggerCopilot }, ref) =>
                         <div className="relative" ref={demoMenuRef}>
                             <button
                                 onClick={() => setShowDemoMenu(!showDemoMenu)}
+                                onMouseDown={(e) => e.preventDefault()}
                                 className="px-3 py-1.5 bg-purple-50 text-[#6B46FF] text-xs font-medium rounded-lg hover:bg-purple-100 transition-colors flex items-center gap-1"
                                 aria-haspopup="true"
                                 aria-expanded={showDemoMenu}
@@ -1204,6 +1215,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({ onTriggerCopilot }, ref) =>
                                         <button
                                             key={scenario.id}
                                             onClick={() => loadDemoScenario(scenario.id)}
+                                            onMouseDown={(e) => e.preventDefault()}
                                             className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded flex items-center gap-2"
                                             role="menuitem"
                                         >
@@ -1216,6 +1228,7 @@ const Editor = forwardRef<EditorRef, EditorProps>(({ onTriggerCopilot }, ref) =>
                         </div>
                         <button
                             onClick={() => editor.chain().focus().toggleBlockquote().run()}
+                            onMouseDown={(e) => e.preventDefault()}
                             className={cn(
                                 "p-1.5 rounded hover:bg-gray-200 transition-colors",
                                 editor.isActive('blockquote') ? 'bg-gray-200 text-[#6B46FF]' : 'text-gray-600'
@@ -1339,213 +1352,197 @@ const Editor = forwardRef<EditorRef, EditorProps>(({ onTriggerCopilot }, ref) =>
             </div>
 
             {/* Version Timeline Modal */}
-            {showVersionTimeline && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm" onClick={() => setShowVersionTimeline(false)}>
-                    <div className="w-[500px] max-h-[80vh] bg-white rounded-xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden animate-in fade-in zoom-in-95" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50/50">
-                            <h3 className="text-sm font-semibold text-gray-800">Version History</h3>
-                            <button
-                                onClick={() => setShowVersionTimeline(false)}
-                                className="p-1.5 hover:bg-gray-200/50 rounded-lg transition-colors"
-                            >
-                                <X className="w-4 h-4 text-gray-500" />
-                            </button>
-                        </div>
-                        <div className="p-4 overflow-y-auto space-y-3">
-                            {versions.length === 0 ? (
-                                <div className="text-center py-8 text-gray-500 text-sm">
-                                    <History className="w-8 h-8 mx-auto mb-2 opacity-20" />
-                                    <p>No versions yet</p>
-                                    <p className="text-xs opacity-60 mt-1">Edits will appear here automatically</p>
-                                </div>
-                            ) : (
-                                versions.map(version => (
-                                    <div key={version.id} className="p-3 border border-gray-100 rounded-xl hover:bg-gray-50 group transition-all">
-                                        <div className="flex items-center justify-between text-sm mb-1">
-                                            <span className="font-medium text-gray-900">{version.action}</span>
-                                            <span className="text-xs text-gray-500">{version.timestamp}</span>
-                                        </div>
-                                        <button
-                                            onClick={() => {
-                                                showToast(`Restored version from ${version.timestamp}`)
-                                                setShowVersionTimeline(false)
-                                                if (editor) {
-                                                    editor.commands.focus()
-                                                }
-                                            }}
-                                            className="w-full text-center text-xs text-[#6C2BD9] bg-[#6C2BD9]/5 hover:bg-[#6C2BD9]/10 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-all font-medium"
-                                        >
-                                            Restore this version
-                                        </button>
+            {
+                showVersionTimeline && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm" onClick={() => setShowVersionTimeline(false)}>
+                        <div className="w-[500px] max-h-[80vh] bg-white rounded-xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden animate-in fade-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-gray-50/50">
+                                <h3 className="text-sm font-semibold text-gray-800">Version History</h3>
+                                <button
+                                    onClick={() => setShowVersionTimeline(false)}
+                                    className="p-1.5 hover:bg-gray-200/50 rounded-lg transition-colors"
+                                >
+                                    <X className="w-4 h-4 text-gray-500" />
+                                </button>
+                            </div>
+                            <div className="p-4 overflow-y-auto space-y-3">
+                                {versions.length === 0 ? (
+                                    <div className="text-center py-8 text-gray-500 text-sm">
+                                        <History className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                                        <p>No versions yet</p>
+                                        <p className="text-xs opacity-60 mt-1">Edits will appear here automatically</p>
                                     </div>
-                                ))
+                                ) : (
+                                    versions.map(version => (
+                                        <div key={version.id} className="p-3 border border-gray-100 rounded-xl hover:bg-gray-50 group transition-all">
+                                            <div className="flex items-center justify-between text-sm mb-1">
+                                                <span className="font-medium text-gray-900">{version.action}</span>
+                                                <span className="text-xs text-gray-500">{version.timestamp}</span>
+                                            </div>
+                                            <button
+                                                onClick={() => {
+                                                    showToast(`Restored version from ${version.timestamp}`)
+                                                    setShowVersionTimeline(false)
+                                                    if (editor) {
+                                                        editor.commands.focus()
+                                                    }
+                                                }}
+                                                className="w-full text-center text-xs text-[#6C2BD9] bg-[#6C2BD9]/5 hover:bg-[#6C2BD9]/10 py-2 rounded-lg opacity-0 group-hover:opacity-100 transition-all font-medium"
+                                            >
+                                                Restore this version
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* Diff Preview Bubble - P0 Spec */}
+            {
+                preview && (
+                    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[640px] bg-white/95 backdrop-blur-lg border border-gray-200 shadow-2xl rounded-xl p-4 z-30 animate-in fade-in slide-in-from-bottom-4">
+                        <div className="flex items-center justify-between mb-3">
+                            <div>
+                                <p className="text-[11px] uppercase tracking-wide text-[#6b6f76]">Diff preview</p>
+                                <p className="text-[14px] font-semibold text-gray-800">{preview.label}</p>
+                            </div>
+                            <div className="flex items-center gap-2 text-[12px] text-[#6b6f76]">
+                                {preview.status === 'loading' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                                <span>{preview.status === 'ready' ? 'Ready to apply' : preview.status === 'loading' ? 'Streaming...' : 'Retry needed'}</span>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 text-[13px]">
+                            <div className="border border-gray-100 rounded-lg p-3 bg-gray-50/60 max-h-32 overflow-y-auto">
+                                <p className="text-[11px] text-[#6b6f76] mb-1.5">Original</p>
+                                <p className="text-gray-700 text-[13px] whitespace-pre-wrap leading-relaxed">{preview.original}</p>
+                            </div>
+                            <div className="border border-[#6B46FF]/20 rounded-lg p-3 bg-[#6B46FF]/5 max-h-32 overflow-y-auto">
+                                <p className="text-[11px] text-[#6B46FF] mb-1.5 flex items-center gap-1">
+                                    <Sparkles className="w-3 h-3" />
+                                    Suggested
+                                </p>
+                                <p className="text-gray-800 text-[13px] whitespace-pre-wrap leading-relaxed">
+                                    {preview.status === 'loading' ? 'Generating better phrasing…' : (
+                                        <span>
+                                            {preview.suggestion.split(' ').map((word, i) => (
+                                                <span
+                                                    key={i}
+                                                    className={preview.changedTokens?.some(t => t.from <= i && t.to >= i) ? 'bg-[#FDE68A]' : ''}
+                                                >
+                                                    {word}{' '}
+                                                </span>
+                                            ))}
+                                        </span>
+                                    )}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-between mt-4">
+                            {preview.status === 'error' && (
+                                <div className="flex items-center gap-1.5 text-[12px] text-amber-600">
+                                    <AlertTriangle className="w-3.5 h-3.5" />
+                                    We could not complete that action. Please try again.
+                                </div>
+                            )}
+                            <div className="ml-auto flex items-center gap-2">
+                                <button
+                                    onClick={discardSuggestion}
+                                    className="px-3.5 py-2 text-[13px] font-medium text-gray-600 hover:text-gray-800 transition-colors"
+                                >
+                                    Reject
+                                </button>
+                                <button
+                                    disabled={preview.status !== 'ready'}
+                                    onClick={applySuggestion}
+                                    className="px-3.5 py-2 bg-[#6B46FF] text-white text-[13px] font-semibold rounded-lg shadow-sm disabled:bg-purple-300 flex items-center gap-1.5 hover:bg-[#6B46FF]/90 transition-colors"
+                                >
+                                    <Check className="w-3.5 h-3.5" />
+                                    Apply
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* Upload Modal */}
+            {
+                showUploadModal && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowUploadModal(false)}>
+                        <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-lg font-semibold text-gray-800">Upload Files</h3>
+                                <button
+                                    onClick={() => setShowUploadModal(false)}
+                                    className="p-1 hover:bg-gray-100 rounded transition-colors"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+                            <div
+                                className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-[#6B46FF] transition-colors cursor-pointer"
+                                onDrop={(e) => {
+                                    e.preventDefault()
+                                    handleFileUpload(e.dataTransfer.files)
+                                }}
+                                onDragOver={(e) => e.preventDefault()}
+                            >
+                                <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                                <p className="text-gray-600 mb-2">Drag and drop files here</p>
+                                <p className="text-sm text-gray-400 mb-4">or</p>
+                                <label className="inline-block px-4 py-2 bg-[#6B46FF] text-white rounded-lg cursor-pointer hover:bg-[#6B46FF]/90 transition-colors">
+                                    Browse Files
+                                    <input
+                                        type="file"
+                                        multiple
+                                        accept=".jpg,.jpeg,.png,.pdf,.docx,.pptx"
+                                        className="hidden"
+                                        onChange={(e) => handleFileUpload(e.target.files)}
+                                    />
+                                </label>
+                                <p className="text-xs text-gray-400 mt-2">Supports: JPG, PNG, PDF, DOCX, PPTX</p>
+                            </div>
+                            {uploadedFiles.length > 0 && (
+                                <div className="mt-4 space-y-2">
+                                    <p className="text-sm font-medium text-gray-700">Uploaded Files:</p>
+                                    {uploadedFiles.map((file, idx) => (
+                                        <div key={idx} className="flex items-center justify-between p-2 border border-gray-200 rounded-lg">
+                                            <div className="flex items-center gap-2">
+                                                <FileText className="w-4 h-4 text-gray-400" />
+                                                <span className="text-sm text-gray-700">{file.name}</span>
+                                                <span className="text-xs text-gray-400">({(file.size / 1024).toFixed(1)} KB)</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => {
+                                                        // Insert into document
+                                                        if (editor) {
+                                                            editor.commands.insertContent(`[File: ${file.name}]`)
+                                                        }
+                                                        setShowUploadModal(false)
+                                                    }}
+                                                    className="px-2 py-1 text-xs text-[#6B46FF] hover:bg-[#6B46FF]/10 rounded transition-colors"
+                                                >
+                                                    Insert
+                                                </button>
+                                                <button
+                                                    onClick={() => setUploadedFiles(prev => prev.filter((_, i) => i !== idx))}
+                                                    className="p-1 hover:bg-gray-100 rounded transition-colors"
+                                                >
+                                                    <X className="w-4 h-4 text-gray-400" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                             )}
                         </div>
                     </div>
-                </div>
-            )}
-
-            {/* Diff Preview Bubble - P0 Spec */}
-            {preview && (
-                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[640px] bg-white/95 backdrop-blur-lg border border-gray-200 shadow-2xl rounded-xl p-4 z-30 animate-in fade-in slide-in-from-bottom-4">
-                    <div className="flex items-center justify-between mb-3">
-                        <div>
-                            <p className="text-[11px] uppercase tracking-wide text-[#6b6f76]">Diff preview</p>
-                            <p className="text-[14px] font-semibold text-gray-800">{preview.label}</p>
-                        </div>
-                        <div className="flex items-center gap-2 text-[12px] text-[#6b6f76]">
-                            {preview.status === 'loading' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                            <span>{preview.status === 'ready' ? 'Ready to apply' : preview.status === 'loading' ? 'Streaming...' : 'Retry needed'}</span>
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 text-[13px]">
-                        <div className="border border-gray-100 rounded-lg p-3 bg-gray-50/60 max-h-32 overflow-y-auto">
-                            <p className="text-[11px] text-[#6b6f76] mb-1.5">Original</p>
-                            <p className="text-gray-700 text-[13px] whitespace-pre-wrap leading-relaxed">{preview.original}</p>
-                        </div>
-                        <div className="border border-[#6B46FF]/20 rounded-lg p-3 bg-[#6B46FF]/5 max-h-32 overflow-y-auto">
-                            <p className="text-[11px] text-[#6B46FF] mb-1.5 flex items-center gap-1">
-                                <Sparkles className="w-3 h-3" />
-                                Suggested
-                            </p>
-                            <p className="text-gray-800 text-[13px] whitespace-pre-wrap leading-relaxed">
-                                {preview.status === 'loading' ? 'Generating better phrasing…' : (
-                                    <span>
-                                        {preview.suggestion.split(' ').map((word, i) => (
-                                            <span
-                                                key={i}
-                                                className={preview.changedTokens?.some(t => t.from <= i && t.to >= i) ? 'bg-[#FDE68A]' : ''}
-                                            >
-                                                {word}{' '}
-                                            </span>
-                                        ))}
-                                    </span>
-                                )}
-                            </p>
-                        </div>
-                    </div>
-                    <div className="flex items-center justify-between mt-4">
-                        {preview.status === 'error' && (
-                            <div className="flex items-center gap-1.5 text-[12px] text-amber-600">
-                                <AlertTriangle className="w-3.5 h-3.5" />
-                                We could not complete that action. Please try again.
-                            </div>
-                        )}
-                        <div className="ml-auto flex items-center gap-2">
-                            <button
-                                onClick={discardSuggestion}
-                                className="px-3.5 py-2 text-[13px] font-medium text-gray-600 hover:text-gray-800 transition-colors"
-                            >
-                                Reject
-                            </button>
-                            <button
-                                disabled={preview.status !== 'ready'}
-                                onClick={applySuggestion}
-                                className="px-3.5 py-2 bg-[#6B46FF] text-white text-[13px] font-semibold rounded-lg shadow-sm disabled:bg-purple-300 flex items-center gap-1.5 hover:bg-[#6B46FF]/90 transition-colors"
-                            >
-                                <Check className="w-3.5 h-3.5" />
-                                Apply
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Grammar/Tone Hover Bubble - anchored with viewport-aware placement */}
-            {/* Grammar/Tone Hover Bubble - Replaced by PopoverManager */}
-
-            {/* Toast with Undo - P0 Spec */}
-            {toast && (
-                <div className="fixed bottom-6 left-6 bg-gray-900 text-white text-[13px] px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-3 z-40 animate-in fade-in slide-in-from-bottom-2">
-                    <span>{toast.message}</span>
-                    {toast.undo && (
-                        <button
-                            onClick={() => {
-                                toast.undo?.()
-                                setToast(null)
-                            }}
-                            className="text-[#6B46FF] hover:text-[#6B46FF]/80 font-medium flex items-center gap-1"
-                        >
-                            <Undo2 className="w-3.5 h-3.5" />
-                            Undo
-                        </button>
-                    )}
-                </div>
-            )}
-
-            {/* Upload Modal */}
-            {showUploadModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowUploadModal(false)}>
-                    <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-semibold text-gray-800">Upload Files</h3>
-                            <button
-                                onClick={() => setShowUploadModal(false)}
-                                className="p-1 hover:bg-gray-100 rounded transition-colors"
-                            >
-                                <X className="w-5 h-5" />
-                            </button>
-                        </div>
-                        <div
-                            className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-[#6B46FF] transition-colors cursor-pointer"
-                            onDrop={(e) => {
-                                e.preventDefault()
-                                handleFileUpload(e.dataTransfer.files)
-                            }}
-                            onDragOver={(e) => e.preventDefault()}
-                        >
-                            <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                            <p className="text-gray-600 mb-2">Drag and drop files here</p>
-                            <p className="text-sm text-gray-400 mb-4">or</p>
-                            <label className="inline-block px-4 py-2 bg-[#6B46FF] text-white rounded-lg cursor-pointer hover:bg-[#6B46FF]/90 transition-colors">
-                                Browse Files
-                                <input
-                                    type="file"
-                                    multiple
-                                    accept=".jpg,.jpeg,.png,.pdf,.docx,.pptx"
-                                    className="hidden"
-                                    onChange={(e) => handleFileUpload(e.target.files)}
-                                />
-                            </label>
-                            <p className="text-xs text-gray-400 mt-2">Supports: JPG, PNG, PDF, DOCX, PPTX</p>
-                        </div>
-                        {uploadedFiles.length > 0 && (
-                            <div className="mt-4 space-y-2">
-                                <p className="text-sm font-medium text-gray-700">Uploaded Files:</p>
-                                {uploadedFiles.map((file, idx) => (
-                                    <div key={idx} className="flex items-center justify-between p-2 border border-gray-200 rounded-lg">
-                                        <div className="flex items-center gap-2">
-                                            <FileText className="w-4 h-4 text-gray-400" />
-                                            <span className="text-sm text-gray-700">{file.name}</span>
-                                            <span className="text-xs text-gray-400">({(file.size / 1024).toFixed(1)} KB)</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                onClick={() => {
-                                                    // Insert into document
-                                                    if (editor) {
-                                                        editor.commands.insertContent(`[File: ${file.name}]`)
-                                                    }
-                                                    setShowUploadModal(false)
-                                                }}
-                                                className="px-2 py-1 text-xs text-[#6B46FF] hover:bg-[#6B46FF]/10 rounded transition-colors"
-                                            >
-                                                Insert
-                                            </button>
-                                            <button
-                                                onClick={() => setUploadedFiles(prev => prev.filter((_, i) => i !== idx))}
-                                                className="p-1 hover:bg-gray-100 rounded transition-colors"
-                                            >
-                                                <X className="w-4 h-4 text-gray-400" />
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Suggestions Modal */}
             <SuggestionsModal
@@ -1563,14 +1560,16 @@ const Editor = forwardRef<EditorRef, EditorProps>(({ onTriggerCopilot }, ref) =>
                 initialGoals={goals}
                 onSave={handleSaveGoals}
             />
-            {selectedFactorForImprovement && (
-                <ImprovementSuggestionsModal
-                    factor={selectedFactorForImprovement}
-                    onClose={() => setSelectedFactorForImprovement(null)}
-                    onApplyFix={handleApplyQuickFix}
-                />
-            )}
-        </div>
+            {
+                selectedFactorForImprovement && (
+                    <ImprovementSuggestionsModal
+                        factor={selectedFactorForImprovement}
+                        onClose={() => setSelectedFactorForImprovement(null)}
+                        onApplyFix={handleApplyQuickFix}
+                    />
+                )
+            }
+        </div >
     )
 })
 

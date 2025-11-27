@@ -109,7 +109,8 @@ const Copilot = ({
 
 
 
-    // Load recommendations visibility from storage
+    // Load recommendations visibility from storage - DISABLED for prototype to ensure visibility
+    /*
     useEffect(() => {
         const userId = 'current-user' // TODO: Get from auth context
         const storageKey = `trinka.recsVisible.${userId}.${docId}`
@@ -133,7 +134,7 @@ const Copilot = ({
                 }
             })
     }, [docId])
-
+    */
 
     // Fetch recommendations
     const fetchRecommendations = async (limit = 5, offset = 0) => {
@@ -349,9 +350,12 @@ const Copilot = ({
         const intent = meta?.intent || 'rewrite'
         const tone = meta?.tone || 'academic'
 
-        // Simulate clarifying question for ambiguous prompts (only if first message)
-        if (prompt.length < 5 && !meta && messages.length === 0) {
-            setClarifyingQuestion('What would you like me to do?')
+        // Clarifying question logic
+        const vagueKeywords = ['fix', 'improve', 'better', 'change', 'edit', 'rewrite']
+        const isVague = vagueKeywords.includes(prompt.toLowerCase().trim())
+
+        if (messages.length === 0 && (prompt.length < 10 || isVague) && !meta) {
+            setClarifyingQuestion("Could you be more specific? For example, would you like me to fix grammar, improve clarity, or change the tone?")
             return
         }
 
@@ -362,7 +366,6 @@ const Copilot = ({
             intent
         }
 
-        console.log('Adding user message:', userMessage)
         setMessages(prev => [...prev, userMessage])
         setIsLoading(true)
         setStatus('streaming')
@@ -418,14 +421,13 @@ const Copilot = ({
             setStatus('idle')
             setStreamingProgress(0)
 
-            // Record action history (saves silently, no popup)
+            // Record action history
             setActionHistory(prev => {
                 const newHistory = [{
                     id: assistantMessageId,
                     action: `${intent}: ${prompt.slice(0, 30)}...`,
                     timestamp: new Date().toLocaleTimeString()
                 }, ...prev].slice(0, 5)
-                console.log('Action saved to history:', newHistory[0])
                 return newHistory
             })
         } catch (error) {
@@ -572,6 +574,7 @@ const Copilot = ({
                                             docId={docId}
                                             onApply={handleApplyRecommendation}
                                             onDismiss={handleDismissRecommendation}
+                                            onChat={(text) => sendPrompt(text)}
                                         />
                                     ))}
                                 </div>

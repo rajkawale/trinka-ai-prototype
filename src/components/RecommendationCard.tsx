@@ -23,12 +23,18 @@ interface RecommendationCardProps {
     docId: string
     onApply?: (recommendationId: string) => void
     onDismiss?: (recommendationId: string) => void
+    onChat?: (text: string) => void
 }
 
-const RecommendationCard = ({ recommendation, docId, onApply, onDismiss }: RecommendationCardProps) => {
+const RecommendationCard = ({ recommendation, docId, onApply, onDismiss, onChat }: RecommendationCardProps) => {
     const { openPopover, closePopover } = usePopover()
 
     const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+        if (onChat) {
+            onChat(recommendation.title)
+            return
+        }
+
         openPopover(e.currentTarget, (
             <RecommendationDetailPopover
                 recommendation={recommendation}

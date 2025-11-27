@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Editor, { type EditorRef } from './components/Editor'
 import Copilot from './components/Copilot'
-import { Menu, History, RotateCcw, Eye, Copy, X, User as UserIcon, Settings, MessageSquare, HelpCircle } from 'lucide-react'
+import { Menu, History, RotateCcw, Eye, X, User as UserIcon, Settings, MessageSquare, HelpCircle } from 'lucide-react'
 import { cn, trinkaApi } from './lib/utils'
 
 
@@ -64,13 +64,42 @@ function App() {
     }
   }, [showMenu, showUserMenu, showProfileMenu])
 
+  const MOCK_VERSION_HISTORY = [
+    {
+      id: 'v1',
+      timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(), // 5 mins ago
+      action: 'AI Rewrite',
+      summary: 'Rewrote introduction for clarity',
+      word_count: 450,
+      author: 'Trinka AI'
+    },
+    {
+      id: 'v2',
+      timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(), // 30 mins ago
+      action: 'Manual Edit',
+      summary: 'Updated methodology section',
+      word_count: 420,
+      author: 'You'
+    },
+    {
+      id: 'v3',
+      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), // 2 hours ago
+      action: 'Paste',
+      summary: 'Pasted content from source',
+      word_count: 380,
+      author: 'You'
+    }
+  ]
+
   const fetchVersionHistory = async () => {
     try {
       const response = await fetch(trinkaApi('/versions?limit=5'))
+      if (!response.ok) throw new Error('API unavailable')
       const data = await response.json()
       setVersionHistory(data.snapshots || [])
     } catch (error) {
-      console.error('Failed to fetch version history:', error)
+      console.log('Using mock version history')
+      setVersionHistory(MOCK_VERSION_HISTORY)
     }
   }
 
@@ -329,57 +358,74 @@ function App() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-4">
               {versionHistory.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-8">No versions yet</p>
+                <div className="text-center py-12">
+                  <History className="w-12 h-12 text-gray-200 mx-auto mb-3" />
+                  <p className="text-gray-500 font-medium">No version history available</p>
+                  <p className="text-sm text-gray-400 mt-1">Edits will appear here automatically</p>
+                </div>
               ) : (
-                versionHistory.map((snapshot: any) => {
-                  const snapshotSize = snapshot.delta ? (JSON.parse(snapshot.delta).text?.split(/\s+/).length || 0) : 0
-                  return (
-                    <div key={snapshot.id} className="p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-gray-800">{snapshot.summary || snapshot.action}</p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {new Date(snapshot.timestamp).toLocaleString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </p>
-                          <div className="flex items-center gap-4 mt-1">
-                            <span className="text-xs text-gray-500">{snapshot.word_count} words</span>
-                            {snapshotSize > 0 && (
-                              <span className="text-xs text-gray-500">Snapshot: {snapshotSize} words</span>
-                            )}
+                <div className="relative pl-4 border-l border-gray-200 space-y-8">
+                  {versionHistory.map((snapshot: any, index) => (
+                    <div key={snapshot.id} className="relative">
+                      {/* Timeline Dot */}
+                      <div className={cn(
+                        "absolute -left-[21px] top-1 w-3 h-3 rounded-full border-2 border-white shadow-sm",
+                        index === 0 ? "bg-[#6C2BD9]" : "bg-gray-300"
+                      )} />
+
+                      <div className="bg-gray-50 rounded-xl p-4 hover:bg-gray-100 transition-colors border border-gray-100 group">
+                        <div className="flex items-start justify-between mb-2">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-semibold text-gray-900 text-sm">
+                                {snapshot.summary || snapshot.action}
+                              </span>
+                              {index === 0 && (
+                                <span className="px-2 py-0.5 bg-[#6C2BD9]/10 text-[#6C2BD9] text-[10px] font-bold uppercase tracking-wider rounded-full">
+                                  Current
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-gray-500">
+                              <span className="flex items-center gap-1">
+                                <UserIcon className="w-3 h-3" />
+                                {snapshot.author || 'Trinka AI'}
+                              </span>
+                              <span>•</span>
+                              <span>
+                                {new Date(snapshot.timestamp).toLocaleString('en-US', {
+                                  hour: 'numeric',
+                                  minute: 'numeric',
+                                  hour12: true
+                                })}
+                              </span>
+                              <span>•</span>
+                              <span>{snapshot.word_count} words</span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2 mt-3">
-                        <button
-                          onClick={() => handleRestoreVersion(snapshot.id)}
-                          className="flex items-center gap-1 px-3 py-1.5 text-xs text-[#6C2BD9] hover:bg-[#6C2BD9]/10 rounded transition-colors"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5" />
-                          Restore
-                        </button>
-                        <button
-                          className="flex items-center gap-1 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded transition-colors"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          Diff
-                        </button>
-                        <button
-                          className="flex items-center gap-1 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded transition-colors"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                          Copy to new page
-                        </button>
+
+                        <div className="flex items-center gap-2 mt-4 opacity-60 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => handleRestoreVersion(snapshot.id)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-[#6C2BD9] hover:bg-[#6C2BD9]/90 rounded-lg transition-colors shadow-sm"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            Restore this version
+                          </button>
+                          <button
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 rounded-lg transition-colors"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            Preview
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  )
-                })
+                  ))}
+                </div>
               )}
             </div>
           </div>
