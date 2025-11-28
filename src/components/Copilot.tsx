@@ -12,23 +12,34 @@ interface Message {
     metadata?: string
 }
 
-const Copilot = ({ 
+const Copilot = ({
     isCompact,
     onToggleCompact,
     hasSelection: _hasSelection,
     onClose,
     docId = 'default-doc',
-    defaultShowRecommendations = true
-}: { 
+    defaultShowRecommendations = true,
+    isPrivacyMode = false,
+    initialQuery = ''
+}: {
     isCompact?: boolean
     onToggleCompact?: () => void
     hasSelection?: boolean
     onClose?: () => void
     docId?: string
     defaultShowRecommendations?: boolean
+    isPrivacyMode?: boolean
+    initialQuery?: string
 }) => {
     const [messages, setMessages] = useState<Message[]>([])
-    const [input, setInput] = useState('')
+    const [input, setInput] = useState(initialQuery)
+
+    // Update input when initialQuery changes
+    useEffect(() => {
+        if (initialQuery) {
+            setInput(initialQuery)
+        }
+    }, [initialQuery])
     const [isLoading, setIsLoading] = useState(false)
     const [status, setStatus] = useState<'idle' | 'streaming'>('idle')
     const [clarifyingQuestion, setClarifyingQuestion] = useState<string | null>(null)
@@ -96,6 +107,7 @@ const Copilot = ({
 
     // Fetch recommendations
     const fetchRecommendations = async (limit = 5, offset = 0) => {
+        if (isPrivacyMode) return
         setRecommendationsLoading(true)
         try {
             const response = await fetch(trinkaApi(`/api/recommendations?docId=${docId}&limit=${limit}&offset=${offset}`))
@@ -117,22 +129,22 @@ const Copilot = ({
     }
 
     useEffect(() => {
-        if (showRecommendations && messages.length === 0) {
+        if (showRecommendations && messages.length === 0 && !isPrivacyMode) {
             fetchRecommendations(recommendationsExpanded ? 15 : 5)
         }
-    }, [showRecommendations, recommendationsExpanded, docId, messages.length])
+    }, [showRecommendations, recommendationsExpanded, docId, messages.length, isPrivacyMode])
 
     const handleShowMore = () => {
         const newExpanded = !recommendationsExpanded
         setRecommendationsExpanded(newExpanded)
-        
+
         if (typeof window !== 'undefined' && (window as any).analytics) {
             (window as any).analytics.track('rec.showMore', {
                 docId,
                 requestedCount: newExpanded ? 15 : 5
             })
         }
-        
+
         fetchRecommendations(newExpanded ? 15 : 5)
     }
 
@@ -152,7 +164,7 @@ const Copilot = ({
                 await response.json()
                 // Remove from recommendations
                 setRecommendations(prev => prev.filter((r: Recommendation) => r.id !== recommendationId))
-                
+
                 // Show toast
                 const suggestion = recommendations.find((r: Recommendation) => r.id === recommendationId)
                 if (suggestion) {
@@ -185,8 +197,8 @@ const Copilot = ({
                     recommendationId
                 })
             })
-            
-            setDismissedRecommendations(prev => new Set([...prev, recommendationId]))
+
+            setDismissedRecommendations(prev => new Set([...Array.from(prev), recommendationId]))
             setRecommendations(prev => prev.filter((r: Recommendation) => r.id !== recommendationId))
 
             // Emit telemetry
@@ -231,7 +243,7 @@ const Copilot = ({
         const handleKeyDown = (e: KeyboardEvent) => {
             const activeElement = document.activeElement
             const isInCopilot = activeElement?.closest('.copilot-panel')
-            
+
             if (!isInCopilot) return
 
             // R toggles Recommended Actions when Copilot has focus
@@ -239,7 +251,7 @@ const Copilot = ({
                 e.preventDefault()
                 toggleRecommendations()
             }
-            
+
             // M opens model/tone selector when composer has focus
             if ((e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 const activeElement = document.activeElement
@@ -248,7 +260,7 @@ const Copilot = ({
                     setShowModelSelector(true)
                 }
             }
-            
+
             // U opens upload modal
             if ((e.key === 'u' || e.key === 'U') && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 const activeElement = document.activeElement
@@ -257,7 +269,7 @@ const Copilot = ({
                     setShowUploadModal(true)
                 }
             }
-            
+
             // Enter sends message, Shift+Enter creates newline
             if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                 e.preventDefault()
@@ -272,16 +284,16 @@ const Copilot = ({
         window.addEventListener('keydown', handleKeyDown)
         return () => window.removeEventListener('keydown', handleKeyDown)
     }, [input, isLoading, showRecommendations])
-    
+
     // Persist recommendations visibility
     const toggleRecommendations = () => {
         const newState = !showRecommendations
         setShowRecommendations(newState)
-        
+
         const userId = 'current-user'
         const storageKey = `trinka.recsVisible.${userId}.${docId}`
         localStorage.setItem(storageKey, String(newState))
-        
+
         // Sync to server
         fetch(trinkaApi('/api/user-settings'), {
             method: 'PATCH',
@@ -375,7 +387,7 @@ const Copilot = ({
             setIsLoading(false)
             setStatus('idle')
             setStreamingProgress(0)
-            
+
             // Record action history (saves silently, no popup)
             setActionHistory(prev => {
                 const newHistory = [{
@@ -482,7 +494,7 @@ const Copilot = ({
                 {/* Streaming Progress Bar */}
                 {status === 'streaming' && (
                     <div className="h-0.5 bg-gray-200 rounded-full overflow-hidden mt-2">
-                        <div 
+                        <div
                             className="h-full bg-[#6C2BD9] transition-all duration-300"
                             style={{ width: `${streamingProgress}%` }}
                         />
@@ -493,7 +505,7 @@ const Copilot = ({
             {/* Messages Area */}
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {/* Recommended Actions - Collapsible */}
-                {showRecommendations && messages.length === 0 && !isLoading && (
+                {showRecommendations && messages.length === 0 && !isLoading && !isPrivacyMode && (
                     <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
                         <div className="text-[11px] uppercase tracking-wide text-[#6b6f76] font-medium">
                             Recommended actions
@@ -650,7 +662,7 @@ const Copilot = ({
             </div>
 
             {/* Empty Suggestion Strip Container - 40px height */}
-            <div 
+            <div
                 className="suggestion-strip-empty h-10 border-t border-gray-100 bg-white"
                 aria-hidden="true"
                 tabIndex={-1}
@@ -675,6 +687,7 @@ const Copilot = ({
                         ref={inputRef}
                         type="text"
                         value={input}
+                        disabled={isPrivacyMode}
                         onChange={(e) => {
                             setInput(e.target.value)
                             // Hide recommendations when user starts typing
@@ -690,15 +703,18 @@ const Copilot = ({
                                 }
                             }
                         }}
-                        placeholder="Message Copilot or @ mention a tab"
-                        className="flex-1 pl-3.5 pr-20 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#6C2BD9]/20 focus:border-[#6C2BD9] transition-all text-[13px]"
+                        placeholder={isPrivacyMode ? "Privacy Mode Enabled - AI Chat Disabled" : "Message Copilot or @ mention a tab"}
+                        className={cn(
+                            "flex-1 pl-3.5 pr-20 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#6C2BD9]/20 focus:border-[#6C2BD9] transition-all text-[13px]",
+                            isPrivacyMode && "bg-gray-50 text-gray-400 cursor-not-allowed"
+                        )}
                         aria-label="Chat input"
                     />
 
                     {/* Send Button */}
                     <button
                         type="submit"
-                        disabled={!input.trim() || isLoading}
+                        disabled={!input.trim() || isLoading || isPrivacyMode}
                         className="absolute right-12 p-1.5 text-gray-400 hover:text-[#6C2BD9] disabled:opacity-50 disabled:hover:text-gray-400 transition-colors"
                         title="Send (Ctrl/Cmd + Enter)"
                         aria-label="Send message"

@@ -1,0 +1,12 @@
+﻿src/components/Editor.tsx(22,10): error TS1484: 'QualitySignal' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/components/Editor.tsx(22,25): error TS1484: 'OutlineItem' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/components/Editor.tsx(25,5): error TS6133: 'Bold' is declared but its value is never read.
+src/components/Editor.tsx(26,5): error TS6133: 'Italic' is declared but its value is never read.
+src/components/Editor.tsx(27,5): error TS6133: 'List' is declared but its value is never read.
+src/components/Editor.tsx(28,5): error TS6133: 'ListOrdered' is declared but its value is never read.
+src/components/Editor.tsx(104,12): error TS6133: 'fontSize' is declared but its value is never read.
+src/components/Editor.tsx(104,22): error TS6133: 'setFontSize' is declared but its value is never read.
+src/components/Editor.tsx(108,40): error TS2304: Cannot find name 'setShowDemoMenu'.
+src/components/Editor.tsx(292,11): error TS6133: 'loadDemoScenario' is declared but its value is never read.
+src/components/Editor.tsx(323,9): error TS2304: Cannot find name 'setShowDemoMenu'.
+src/editor/components/WritingScorePill.tsx(4,10): error TS1484: 'QualitySignal' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.

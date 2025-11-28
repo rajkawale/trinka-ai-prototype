@@ -5,7 +5,7 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view'
 export type GrammarToneIssue = {
     from: number
     to: number
-    type: 'grammar' | 'tone' | 'ai-suggestion'
+    type: 'grammar' | 'tone' | 'clarity' | 'ai-suggestion'
     message: string
     suggestion?: string
 }
@@ -41,8 +41,9 @@ export const GrammarToneExtension = Extension.create({
                             if (issue.from >= 0 && issue.to <= doc.content.size) {
                                 const color =
                                     issue.type === 'grammar' ? '#EF4444' : // red
-                                        issue.type === 'tone' ? '#3B82F6' : // blue
-                                            '#6C2BD9' // purple for AI
+                                        issue.type === 'clarity' ? '#3B82F6' : // blue
+                                            issue.type === 'tone' ? '#EAB308' : // yellow
+                                                '#6C2BD9' // purple for AI
 
                                 const decoration = Decoration.inline(
                                     issue.from,

@@ -28,9 +28,38 @@ vi.mock('@tiptap/react', () => ({
     FloatingMenu: () => <div>Floating Menu</div>
 }))
 
+vi.mock('../editor/components/FloatingToolbar', () => ({
+    FloatingToolbar: () => <div>Floating Toolbar</div>
+}))
+
+vi.mock('../editor/components/SlashCommands', () => ({
+    configureSlashCommands: () => ({})
+}))
+
+vi.mock('../editor/hooks/useAI', () => ({
+    useAI: () => ({
+        requestRewrite: vi.fn(),
+        preview: null
+    })
+}))
+
+vi.mock('../PopoverManager', () => ({
+    usePopover: () => ({
+        openPopover: vi.fn(),
+        closePopover: vi.fn()
+    })
+}))
+
 describe('Editor', () => {
     it('should render editor content', () => {
-        render(<Editor />)
+        render(<Editor
+            showChat={false}
+            setShowChat={() => { }}
+            isPrivacyMode={false}
+            showHealthSidebar={false}
+            setShowHealthSidebar={() => { }}
+            setCopilotQuery={() => { }}
+        />)
         expect(screen.getByText('Editor Content')).toBeInTheDocument()
     })
 })

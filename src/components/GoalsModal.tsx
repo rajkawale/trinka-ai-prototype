@@ -31,17 +31,21 @@ export default function GoalsModal({ isOpen, onClose, initialGoals, onSave }: Go
 
     return (
         <div
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] animate-in fade-in duration-200"
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[100] animate-in fade-in duration-200 p-4"
             role="dialog"
             aria-modal="true"
+            onClick={onClose}
         >
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200 border border-gray-100 flex flex-col max-h-[90vh]">
+            <div
+                className="bg-white w-full max-w-2xl max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col"
+                onClick={e => e.stopPropagation()}
+            >
                 {/* Header */}
                 <div className="px-8 py-6 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-10">
                     <div>
                         <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                             <Target className="w-5 h-5 text-[#6C2BD9]" />
-                            Writing Goals
+                            Writing Preferences
                         </h2>
                         <p className="text-sm text-gray-500 mt-1">Customize Trinka's feedback to match your intent.</p>
                     </div>
@@ -161,19 +165,27 @@ export default function GoalsModal({ isOpen, onClose, initialGoals, onSave }: Go
                 </div>
 
                 {/* Footer */}
-                <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+                <div className="p-6 border-t border-gray-100 bg-gray-50 flex justify-between items-center gap-3">
                     <button
                         onClick={onClose}
-                        className="px-5 py-2.5 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-200 transition-colors"
+                        className="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-200/50 rounded-lg transition-colors"
                     >
-                        Cancel
+                        Skip for now
                     </button>
-                    <button
-                        onClick={handleSave}
-                        className="px-6 py-2.5 rounded-xl text-sm font-bold text-white bg-[#6C2BD9] hover:bg-[#5835FF] shadow-lg shadow-[#6C2BD9]/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                    >
-                        Save Goals
-                    </button>
+                    <div className="flex gap-3">
+                        <button
+                            onClick={onClose}
+                            className="px-5 py-2.5 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-200 transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            onClick={handleSave}
+                            className="px-6 py-2.5 rounded-xl text-sm font-bold text-white bg-[#6C2BD9] hover:bg-[#5835FF] shadow-lg shadow-[#6C2BD9]/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                        >
+                            Save Goals
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
