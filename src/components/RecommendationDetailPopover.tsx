@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { X, RotateCw, ChevronLeft, ChevronRight, Check, ThumbsDown } from 'lucide-react'
 import type { Recommendation } from './RecommendationCard'
-import { trinkaApi, cn } from '../lib/utils'
+import { getTrinkaApi, cn } from '../lib/utils'
 
 interface RecommendationDetailPopoverProps {
     recommendation: Recommendation
@@ -55,7 +55,7 @@ const RecommendationDetailPopover = ({
             // 1. Try API
             let text = ''
             try {
-                const response = await fetch(trinkaApi('/rewrite'), {
+                const response = await fetch(getTrinkaApi('/rewrite'), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -292,5 +292,3 @@ const RecommendationDetailPopover = ({
 }
 
 export default RecommendationDetailPopover
-
-

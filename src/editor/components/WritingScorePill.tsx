@@ -3,6 +3,7 @@ import { Target, Clock, History, ChevronUp, ChevronDown } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { QualitySignal } from '../types'
 import { useClickOutside } from '../../hooks/useClickOutside'
+import { Z_INDEX } from '../../lib/constants'
 
 interface WritingScorePillProps {
     score: number
@@ -12,7 +13,8 @@ interface WritingScorePillProps {
     revisionCount: number
     onOpenGoals: () => void
     onOpenHistory: () => void
-    onClick?: () => void
+    isOpen: boolean
+    onToggle: () => void
 }
 
 export const WritingScorePill: React.FC<WritingScorePillProps> = ({
@@ -23,29 +25,38 @@ export const WritingScorePill: React.FC<WritingScorePillProps> = ({
     revisionCount,
     onOpenGoals,
     onOpenHistory,
-    onClick
+    isOpen,
+    onToggle
 }) => {
-    const [isOpen, setIsOpen] = useState(false)
     const containerRef = useRef<HTMLDivElement>(null)
 
-    useClickOutside(containerRef, () => setIsOpen(false))
+    useClickOutside(containerRef, () => {
+        if (isOpen) onToggle()
+    })
 
     return (
-        <div className="fixed bottom-6 left-6 z-50" ref={containerRef}>
+        <div
+            className="fixed bottom-6 left-6"
+            ref={containerRef}
+            style={{ zIndex: Z_INDEX.FAB }}
+        >
             {/* Popover Content */}
             <div
                 className={cn(
-                    "absolute bottom-full left-0 mb-3 w-[280px] bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden transition-all duration-200 origin-bottom-left",
-                    isOpen && !onClick ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-95 translate-y-2 pointer-events-none"
+                    "absolute bottom-full left-0 mb-3 w-[300px] bg-white rounded-xl shadow-2xl border border-gray-200/60 overflow-hidden transition-all duration-200 origin-bottom-left",
+                    isOpen ? "opacity-100 scale-100 translate-y-0" : "opacity-0 scale-95 translate-y-2 pointer-events-none"
                 )}
             >
-                <div className="p-4 space-y-4">
+                <div className="p-4 space-y-5">
                     {/* Header */}
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-gray-600">Writing Quality</span>
+                            <div className="w-6 h-6 rounded-full bg-[#6F4FF0]/10 flex items-center justify-center">
+                                <Target className="w-3.5 h-3.5 text-[#6F4FF0]" />
+                            </div>
+                            <span className="text-[13px] font-semibold text-gray-800">Writing Quality Score</span>
                             <span className={cn(
-                                "text-sm font-bold px-2 py-0.5 rounded",
+                                "text-[13px] font-bold px-2 py-0.5 rounded-full",
                                 score >= 90 ? "bg-[#35C28B]/10 text-[#35C28B]" :
                                     score >= 70 ? "bg-blue-100 text-blue-700" :
                                         "bg-amber-100 text-amber-700"
@@ -53,21 +64,14 @@ export const WritingScorePill: React.FC<WritingScorePillProps> = ({
                                 {score}
                             </span>
                         </div>
-                        <button
-                            onClick={onOpenGoals}
-                            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-500"
-                            title="Set Goals"
-                        >
-                            <Target className="w-4 h-4" />
-                        </button>
                     </div>
 
                     {/* Score Factors */}
-                    <div className="space-y-2">
-                        <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Score Factors</p>
-                        {signals.map((signal) => (
-                            <div key={signal.label} className="space-y-1">
-                                <div className="flex items-center justify-between text-xs">
+                    <div className="space-y-2.5">
+                        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Score Factors</p>
+                        <div className="space-y-2">
+                            {signals.map((signal) => (
+                                <div key={signal.label} className="flex items-center justify-between text-[13px]">
                                     <span className="text-gray-600">{signal.label}</span>
                                     <span className={cn(
                                         "font-medium",
@@ -77,43 +81,43 @@ export const WritingScorePill: React.FC<WritingScorePillProps> = ({
                                         {signal.value}
                                     </span>
                                 </div>
-                                <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                                    <div
-                                        className={cn(
-                                            "h-full rounded-full transition-all duration-500",
-                                            signal.status === 'success' ? "bg-[#35C28B] w-full" :
-                                                signal.status === 'warning' ? "bg-amber-400 w-[60%]" : "bg-blue-400 w-[80%]"
-                                        )}
-                                    />
-                                </div>
-                            </div>
-                        ))}
+                            ))}
+                        </div>
                     </div>
 
-                    {/* Stats */}
-                    <div className="pt-3 border-t border-gray-100 space-y-2">
-                        <div className="flex items-center justify-between text-xs text-gray-600">
-                            <span>Word count</span>
-                            <span className="font-medium text-gray-900">{wordCount}</span>
+                    <div className="w-full h-px bg-gray-100" />
+
+                    {/* Document Stats */}
+                    <div className="space-y-3">
+                        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Document Stats</p>
+
+                        <div className="grid grid-cols-2 gap-2">
+                            <div className="bg-gray-50 rounded-lg p-3 border border-gray-100 flex flex-col gap-1">
+                                <span className="text-[11px] text-gray-500">Word Count</span>
+                                <span className="text-[13px] font-semibold text-gray-900">{wordCount}</span>
+                            </div>
+                            <div className="bg-gray-50 rounded-lg p-3 border border-gray-100 flex flex-col gap-1">
+                                <span className="text-[11px] text-gray-500">Read Time</span>
+                                <span className="text-[13px] font-semibold text-gray-900">{readTime}</span>
+                            </div>
                         </div>
-                        <div className="flex items-center justify-between text-xs text-gray-600">
-                            <span className="flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                Read time
-                            </span>
-                            <span className="font-medium text-gray-900">{readTime}</span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs text-gray-600">
-                            <span className="flex items-center gap-1">
-                                <History className="w-3 h-3" />
-                                Versions
-                            </span>
+
+                        <div className="grid grid-cols-2 gap-2">
                             <button
                                 onClick={onOpenHistory}
-                                className="font-medium text-[#6C2BD9] hover:underline"
+                                className="bg-gray-50 hover:bg-gray-100 transition-colors rounded-lg p-3 border border-gray-100 flex flex-col gap-1 text-left group"
                             >
-                                {revisionCount} saved
+                                <span className="text-[11px] text-gray-500 flex items-center gap-1">
+                                    Versions <History className="w-3 h-3 opacity-50" />
+                                </span>
+                                <span className="text-[13px] font-semibold text-[#6F4FF0] group-hover:underline">
+                                    {revisionCount} versions
+                                </span>
                             </button>
+                            <div className="bg-gray-50 rounded-lg p-3 border border-gray-100 flex flex-col gap-1">
+                                <span className="text-[11px] text-gray-500">Last Edited</span>
+                                <span className="text-[13px] font-semibold text-gray-900">Just now</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -121,10 +125,10 @@ export const WritingScorePill: React.FC<WritingScorePillProps> = ({
 
             {/* Pill Button */}
             <button
-                onClick={() => onClick ? onClick() : setIsOpen(!isOpen)}
+                onClick={onToggle}
                 className={cn(
                     "flex items-center gap-3 px-4 py-2.5 bg-white rounded-full shadow-lg border border-gray-200 hover:border-gray-300 transition-all duration-200 group",
-                    isOpen && "ring-2 ring-[#6B46FF]/20 border-[#6B46FF]"
+                    isOpen && "ring-2 ring-[#6F4FF0]/20 border-[#6F4FF0]"
                 )}
             >
                 <div className="flex items-center gap-2">

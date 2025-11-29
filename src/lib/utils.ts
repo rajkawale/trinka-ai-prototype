@@ -8,7 +8,7 @@ export function cn(...inputs: ClassValue[]) {
 // Central Trinka AI API helpers
 export const TRINKA_API_BASE = 'http://localhost:5005'
 
-export function trinkaApi(path: string) {
+export function getTrinkaApi(path: string) {
     if (!path.startsWith('/')) path = `/${path}`
     return `${TRINKA_API_BASE}${path}`
 }

@@ -10,10 +10,10 @@ export const PRIMARY_ACTIONS: AiAction[] = [
 ]
 
 export const SECONDARY_ACTIONS: AiAction[] = [
-    { id: 'expand', label: 'Expand', description: 'Add more detail', mode: 'expand', tone: 'academic', icon: Maximize2 },
-    { id: 'tone', label: 'Improve Tone', description: 'Adjust tone', mode: 'tone', tone: 'formal', icon: Mic },
-    { id: 'paraphrase', label: 'Paraphrase', description: 'Reword', mode: 'paraphrase', tone: 'neutral', icon: RefreshCw },
-    { id: 'fix', label: 'Fix Grammar', description: 'Correct errors', mode: 'fix', tone: 'neutral', icon: Check },
+    { id: 'expand', label: 'Expand', description: 'Add more depth and clarity', mode: 'expand', tone: 'academic', icon: Maximize2 },
+    { id: 'tone', label: 'Improve Tone', description: 'Make text formal or academic', mode: 'tone', tone: 'formal', icon: Mic },
+    { id: 'paraphrase', label: 'Paraphrase', description: 'Rewrite using different words', mode: 'paraphrase', tone: 'neutral', icon: RefreshCw },
+    { id: 'factcheck', label: 'Fact Check', description: 'Verify claims & highlight citations', mode: 'fix', tone: 'neutral', icon: Check },
 ]
 
 interface FloatingToolbarProps {
@@ -22,6 +22,7 @@ interface FloatingToolbarProps {
     setIsMoreMenuOpen: (isOpen: boolean) => void
     requestRewrite: (action: AiAction) => void
     editorRef: React.RefObject<HTMLDivElement | null>
+    isHidden?: boolean
 }
 
 export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
@@ -29,7 +30,8 @@ export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     isMoreMenuOpen,
     setIsMoreMenuOpen,
     requestRewrite,
-    editorRef
+    editorRef,
+    isHidden
 }) => {
     if (!editor) return null
 
@@ -37,6 +39,7 @@ export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         <BubbleMenu
             editor={editor}
             shouldShow={({ state, from, to }) => {
+                if (isHidden) return false
                 const { selection } = state
                 const { empty } = selection
                 const text = state.doc.textBetween(from, to, ' ')
@@ -105,7 +108,10 @@ export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
                     </button>
 
                     {isMoreMenuOpen && (
-                        <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-gray-100 overflow-hidden py-1 z-50 flex flex-col">
+                        <div className="absolute top-full right-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden py-2 z-50 flex flex-col animate-in fade-in zoom-in-95 duration-100 origin-top-right">
+                            <div className="px-3 py-1.5 border-b border-gray-50 mb-1">
+                                <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Advanced Actions</span>
+                            </div>
                             {SECONDARY_ACTIONS.map(action => (
                                 <button
                                     key={action.id}
@@ -113,10 +119,15 @@ export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
                                         requestRewrite(action)
                                         setIsMoreMenuOpen(false)
                                     }}
-                                    className="flex items-center gap-2 px-3 py-2 text-left hover:bg-gray-50 transition-colors w-full"
+                                    className="flex items-start gap-3 px-3 py-2.5 text-left hover:bg-gray-50 transition-colors w-full group"
                                 >
-                                    <action.icon className="w-3.5 h-3.5 text-gray-500" />
-                                    <span className="text-[13px] text-gray-700">{action.label}</span>
+                                    <div className="mt-0.5 p-1 rounded-md bg-gray-50 group-hover:bg-white group-hover:shadow-sm transition-all">
+                                        <action.icon className="w-4 h-4 text-gray-500 group-hover:text-[#6B46FF] transition-colors" />
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-[13px] font-medium text-gray-700 group-hover:text-gray-900">{action.label}</span>
+                                        <span className="text-[11px] text-gray-400 group-hover:text-gray-500 leading-tight">{action.description}</span>
+                                    </div>
                                 </button>
                             ))}
                         </div>

@@ -4,44 +4,32 @@ import StarterKit from '@tiptap/starter-kit'
 import BubbleMenuExtension from '@tiptap/extension-bubble-menu'
 import { GrammarToneExtension } from '../extensions/GrammarToneExtension'
 import type { GrammarToneIssue } from '../extensions/GrammarToneExtension'
-import { cn, trinkaApi } from '../lib/utils'
+import { cn, getTrinkaApi } from '../lib/utils'
 
 import GoalsModal, { type Goals } from './GoalsModal'
-import DocumentHealthTopSuggestionRow from './DocumentHealthTopSuggestionRow'
 
 import SuggestionsModal from './SuggestionsModal'
 import { usePopover } from './PopoverManager'
 import RecommendationDetailPopover from './RecommendationDetailPopover'
+import { Portal } from './Portal'
 import type { Recommendation, ActionType } from './RecommendationCard'
 
 import { countWords } from '../editor/utils/countWords'
 import { useAI } from '../editor/hooks/useAI'
 import { configureSlashCommands } from '../editor/components/SlashCommands'
-import { FloatingToolbar } from '../editor/components/FloatingToolbar'
+// import { FloatingToolbar } from '../editor/components/FloatingToolbar'
 import { createRequestId } from '../editor/utils/editorUtils'
 import { WritingScorePill } from '../editor/components/WritingScorePill'
-import type { QualitySignal, OutlineItem } from '../editor/types'
+import type { QualitySignal } from '../editor/types'
 import ImprovementSuggestionsModal from './ImprovementSuggestionsModal'
+import { SuggestionPopup } from '../editor/components/SuggestionPopup'
 import {
-
-    Sparkles,
-    BookMarked,
-    Check,
     X,
-    AlertTriangle,
-    Loader2,
     History,
     Undo2,
-    Target,
-    ChevronLeft,
-    Clock,
     Upload,
     FileText
 } from 'lucide-react'
-
-
-
-
 
 type VersionSnapshot = {
     id: string
@@ -49,10 +37,6 @@ type VersionSnapshot = {
     action: string
     delta: string
 }
-
-
-
-
 
 interface EditorProps {
     showChat: boolean
@@ -64,7 +48,7 @@ interface EditorProps {
 }
 
 const Editor: React.FC<EditorProps> = ({
-    showChat: _showChat,
+    showChat,
     setShowChat,
     isPrivacyMode: _isPrivacyMode,
     showHealthSidebar,
@@ -72,7 +56,6 @@ const Editor: React.FC<EditorProps> = ({
     setCopilotQuery
 }) => {
     const docId = 'current-doc'
-    const [outline, setOutline] = useState<OutlineItem[]>([])
     const [qualitySignals, setQualitySignals] = useState<QualitySignal[]>([
         { label: 'Tone', value: 'Stable', status: 'success' },
         { label: 'Clarity', value: 'Crisp', status: 'success' },
@@ -114,7 +97,6 @@ const Editor: React.FC<EditorProps> = ({
     const editorRef = useRef<HTMLDivElement>(null)
     const { openPopover, closePopover } = usePopover()
     const requestRewriteRef = useRef<any>(null)
-    const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false)
 
     const slashCommandExtension = React.useMemo(() => {
         return configureSlashCommands({
@@ -158,6 +140,7 @@ const Editor: React.FC<EditorProps> = ({
 
     const {
         preview,
+        setPreview,
         requestRewrite,
         applySuggestion,
         discardSuggestion,
@@ -169,6 +152,44 @@ const Editor: React.FC<EditorProps> = ({
         showToast,
         createRequestId
     })
+
+    // Handle selection changes to trigger popup
+    useEffect(() => {
+        if (!editor) return
+
+        let debounceTimer: NodeJS.Timeout
+
+        const handleSelection = ({ editor }: { editor: any }) => {
+            clearTimeout(debounceTimer)
+
+            debounceTimer = setTimeout(() => {
+                const { selection } = editor.state
+                const { empty, from, to } = selection
+                const text = editor.state.doc.textBetween(from, to, ' ')
+
+                // Only show if selection is not empty and has content
+                if (!empty && text.trim().length > 0) {
+                    setPreview({
+                        status: 'idle',
+                        label: 'Improve',
+                        original: text,
+                        range: { from, to },
+                        initialTab: 'improve'
+                    })
+                } else {
+                    // Close popup if selection is cleared
+                    setPreview(null)
+                }
+            }, 300) // 300ms debounce
+        }
+
+        editor.on('selectionUpdate', handleSelection)
+
+        return () => {
+            editor.off('selectionUpdate', handleSelection)
+            clearTimeout(debounceTimer)
+        }
+    }, [editor, setPreview])
 
     useEffect(() => {
         requestRewriteRef.current = requestRewrite
@@ -189,18 +210,12 @@ const Editor: React.FC<EditorProps> = ({
         const words = countWords(plainText)
         console.debug('trinka:wordcount', words)
 
-        const nodes: OutlineItem[] = []
-        editor.state.doc.descendants((node, pos) => {
+        let headingCount = 0
+        editor.state.doc.descendants((node) => {
             if (node.type.name === 'heading') {
-                nodes.push({
-                    id: `${node.textContent}-${pos}`,
-                    label: node.textContent || 'Untitled section',
-                    level: node.attrs.level ?? 2,
-                    position: pos
-                })
+                headingCount++
             }
         })
-        setOutline(nodes)
 
         // Calculate metrics based on Goals
         let toneStatus = 'Stable'
@@ -222,7 +237,7 @@ const Editor: React.FC<EditorProps> = ({
             { label: 'Clarity', value: clarityStatus, status: 'success' },
             { label: 'Tone', value: toneStatus, status: toneStatus.includes('Needs') || toneStatus.includes('Too') ? 'warning' : 'success' },
             { label: 'Engagement', value: 'High', status: 'success' },
-            { label: 'Structure', value: `${nodes.length || 1} headings`, status: 'info' },
+            { label: 'Structure', value: `${headingCount || 1} heading${(headingCount || 1) !== 1 ? 's' : ''}`, status: 'info' },
         ]
 
         setQualitySignals(signals)
@@ -442,7 +457,7 @@ const Editor: React.FC<EditorProps> = ({
     if (!editor) {
         return (
             <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
-                Initializing editorâ€¦
+                Initializing editor...
             </div>
         )
     }
@@ -457,215 +472,11 @@ const Editor: React.FC<EditorProps> = ({
 
     return (
         <div className="w-full flex gap-4" ref={editorRef}>
-            {/* Left Panel - Document Intelligence */}
-            <aside
-                className={cn(
-                    "flex-shrink-0 transition-all duration-300 ease-in-out border-r border-gray-200 bg-white overflow-hidden",
-                    !showHealthSidebar ? "w-0 opacity-0" : "w-[300px]"
-                )}
-            >
-                <div className="space-y-4 p-4">
-                    {/* Document Health Header */}
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <span className="text-[12px] font-medium text-[#6b6f76]">Writing Quality Score</span>
-                            <span className={cn(
-                                "text-[12px] font-bold px-1.5 py-0.5 rounded",
-                                writingScore >= 90 ? "bg-[#35C28B]/10 text-[#35C28B]" :
-                                    writingScore >= 70 ? "bg-blue-100 text-blue-700" :
-                                        "bg-amber-100 text-amber-700"
-                            )}>
-                                {writingScore}
-                            </span>
-                        </div>
-                        <div className="flex items-center">
-                            <button
-                                onClick={() => setShowGoalsModal(true)}
-                                className="p-1 hover:bg-gray-100 rounded transition-colors mr-1"
-                                title="Set Goals"
-                            >
-                                <Target className="w-3.5 h-3.5 text-gray-500" />
-                            </button>
-                            <button
-                                onClick={() => setShowHealthSidebar(false)}
-                                className="p-1 hover:bg-gray-100 rounded transition-colors"
-                                title="Collapse (Press D)"
-                            >
-                                <ChevronLeft className="w-3.5 h-3.5 text-gray-500" />
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Score Factors Card */}
-                    <div className="bg-gray-50/50 rounded-lg p-3 border border-gray-100 space-y-3">
-                        <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Score Factors</p>
-                        {qualitySignals.map((signal) => (
-                            <button
-                                key={signal.label}
-                                onClick={() => {
-                                    if (signal.status === 'success') {
-                                        showToast(`${signal.label} is looking good! âœ“`)
-                                    } else {
-                                        setSelectedFactorForImprovement(signal.label)
-                                    }
-                                }}
-                                className="w-full text-left space-y-1 hover:bg-gray-100 p-1.5 -mx-1.5 rounded transition-colors group"
-                            >
-                                <div className="flex items-center justify-between text-[12px]">
-                                    <span className="text-gray-600 group-hover:text-gray-900">{signal.label}</span>
-                                    <span className={cn(
-                                        "font-medium",
-                                        signal.status === 'success' ? "text-[#35C28B]" :
-                                            signal.status === 'warning' ? "text-amber-600" : "text-blue-600"
-                                    )}>
-                                        {signal.value}
-                                    </span>
-                                </div>
-                                <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
-                                    <div
-                                        className={cn(
-                                            "h-full rounded-full transition-all duration-500",
-                                            signal.status === 'success' ? "bg-[#35C28B] w-full" :
-                                                signal.status === 'warning' ? "bg-amber-400 w-[60%]" : "bg-blue-400 w-[80%]"
-                                        )}
-                                    />
-                                </div>
-                            </button>
-                        ))}
-
-                        {/* Word Count */}
-                        <div className="flex items-center justify-between text-[13px] pt-2 border-t border-gray-200">
-                            <span className="text-gray-600">Word count</span>
-                            <span className="text-[12px] font-medium text-gray-800">{wordCount}</span>
-                        </div>
-
-                        {/* Read Time */}
-                        <div className="flex items-center justify-between text-[13px]">
-                            <span className="text-gray-600 flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                Read time
-                            </span>
-                            <span className="text-[12px] font-medium text-gray-800">{readTime}</span>
-                        </div>
-
-                        {/* Version History */}
-                        <div className="flex items-center justify-between text-[13px]">
-                            <span className="text-gray-600 flex items-center gap-1">
-                                <History className="w-3 h-3" />
-                                Version History
-                            </span>
-                            <button
-                                onClick={() => setShowVersionTimeline(true)}
-                                className="text-[12px] font-medium text-[#6C2BD9] hover:underline cursor-pointer"
-                            >
-                                {revisionCount || 3} versions
-                            </button>
-                        </div>
-
-                        {/* Top Suggestions - Actionable */}
-                        <div className="space-y-1.5 pt-2 border-t border-gray-200">
-                            <div className="flex items-center justify-between text-[13px] mb-1.5">
-                                <span className="text-gray-600 font-medium">Top suggestions</span>
-                                <button
-                                    onClick={() => setShowSuggestionsModal(true)}
-                                    className="text-[12px] text-[#6C2BD9] hover:text-[#6C2BD9]/80 font-medium transition-colors"
-                                >
-                                    See all
-                                </button>
-                            </div>
-                            <div className="space-y-1">
-                                <DocumentHealthTopSuggestionRow
-                                    suggestion={{
-                                        id: 'suggestion-1',
-                                        title: 'This paragraph is overly complex.',
-                                        summary: 'Simplify sentence structure',
-                                        fullText: 'This paragraph contains multiple nested clauses and complex sentence structures that may reduce readability. Consider breaking it into shorter, clearer sentences.',
-                                        actionType: 'tighten',
-                                        estimatedImpact: 'medium'
-                                    }}
-                                    docId="current-doc"
-                                    onApply={() => {
-                                        showToast(`Applied: This paragraph is overly complex. Undo`)
-                                    }}
-                                />
-                                <DocumentHealthTopSuggestionRow
-                                    suggestion={{
-                                        id: 'suggestion-2',
-                                        title: 'Try reducing passive voice.',
-                                        summary: 'Use active voice for clarity',
-                                        fullText: 'Several sentences in this section use passive voice, which can make the writing less direct. Consider rewriting in active voice where possible.',
-                                        actionType: 'rewrite',
-                                        estimatedImpact: 'high'
-                                    }}
-                                    docId="current-doc"
-                                    onApply={() => {
-                                        showToast(`Applied: Try reducing passive voice. Undo`)
-                                    }}
-                                />
-                                <DocumentHealthTopSuggestionRow
-                                    suggestion={{
-                                        id: 'suggestion-3',
-                                        title: 'Sentence length exceeds recommended readability.',
-                                        summary: 'Break into shorter sentences',
-                                        fullText: 'Some sentences exceed 25 words, which can reduce readability. Consider splitting long sentences into two or more shorter ones.',
-                                        actionType: 'tighten',
-                                        estimatedImpact: 'low'
-                                    }}
-                                    docId="current-doc"
-                                    onApply={() => {
-                                        showToast(`Applied: Sentence length exceeds recommended readability. Undo`)
-                                    }}
-                                />
-                            </div>
-                        </div>
-                    </div>
-
-
-                    {/* Outline */}
-                    <div>
-                        <div className="flex items-center gap-1.5 text-[13px] font-medium text-gray-700 mb-2">
-                            <BookMarked className="w-3.5 h-3.5 text-[#6C2BD9]" />
-                            Outline
-                        </div>
-                        <div className="space-y-0.5">
-                            {(outline.length ? outline : [{ id: 'intro', label: 'Introduction', level: 2, position: 0 }]).map(node => (
-                                <button
-                                    key={node.id}
-                                    className={cn(
-                                        'w-full text-left text-[13px] px-2.5 py-1.5 rounded-lg hover:bg-black/3 transition-colors',
-                                        node.level > 2 && 'pl-4 text-[#6b6f76] text-[12px]'
-                                    )}
-                                    onClick={() => {
-                                        const found = outline.find(o => o.id === node.id)
-                                        if (found) {
-                                            editor
-                                                .chain()
-                                                .focus()
-                                                .setTextSelection({ from: found.position, to: found.position + found.label.length })
-                                                .scrollIntoView()
-                                                .run()
-                                        }
-                                    }}
-                                >
-                                    <span>{node.label}</span>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            </aside>
 
             {/* Expanded Toolbar - REMOVED */}
             <div className="h-4" />
 
-            {/* Glassmorphic Inline Toolbar */}
-            <FloatingToolbar
-                editor={editor}
-                isMoreMenuOpen={isMoreMenuOpen}
-                setIsMoreMenuOpen={setIsMoreMenuOpen}
-                requestRewrite={requestRewrite}
-                editorRef={editorRef}
-            />
+            {/* Glassmorphic Inline Toolbar - REMOVED per user request */}
 
             <EditorContent editor={editor} />
 
@@ -716,81 +527,25 @@ const Editor: React.FC<EditorProps> = ({
                 </div>
             )}
 
-            {/* Diff Preview Bubble - P0 Spec */}
-            {
-                preview && (
-                    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[640px] bg-white/95 backdrop-blur-lg border border-gray-200 shadow-2xl rounded-xl p-4 z-30 animate-in fade-in slide-in-from-bottom-4">
-                        <div className="flex items-center justify-between mb-3">
-                            <div>
-                                <p className="text-[11px] uppercase tracking-wide text-[#6b6f76]">Diff preview</p>
-                                <p className="text-[14px] font-semibold text-gray-800">{preview.label}</p>
-                            </div>
-                            <div className="flex items-center gap-2 text-[12px] text-[#6b6f76]">
-                                {preview.status === 'loading' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                                <span>{preview.status === 'ready' ? 'Ready to apply' : preview.status === 'loading' ? 'Streaming...' : 'Retry needed'}</span>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3 text-[13px]">
-                            <div className="border border-gray-100 rounded-lg p-3 bg-gray-50/60 max-h-32 overflow-y-auto">
-                                <p className="text-[11px] text-[#6b6f76] mb-1.5">Original</p>
-                                <p className="text-gray-700 text-[13px] whitespace-pre-wrap leading-relaxed">{preview.original}</p>
-                            </div>
-                            <div className="border border-[#6B46FF]/20 rounded-lg p-3 bg-[#6B46FF]/5 max-h-32 overflow-y-auto">
-                                <p className="text-[11px] text-[#6B46FF] mb-1.5 flex items-center gap-1">
-                                    <Sparkles className="w-3 h-3" />
-                                    Suggested
-                                </p>
-                                <p className="text-gray-800 text-[13px] whitespace-pre-wrap leading-relaxed">
-                                    {preview.status === 'loading' ? 'Generating better phrasingâ€¦' : (
-                                        <span>
-                                            {preview.suggestion.split(' ').map((word: string, i: number) => (
-                                                <span
-                                                    key={i}
-                                                    className={preview.changedTokens?.some((t: { from: number; to: number }) => t.from <= i && t.to >= i) ? 'bg-[#FDE68A]' : ''}
-                                                >
-                                                    {word}{' '}
-                                                </span>
-                                            ))}
-                                        </span>
-                                    )}
-                                </p>
-                            </div>
-                        </div>
-                        <div className="flex items-center justify-between mt-4">
-                            {preview.status === 'error' && (
-                                <div className="flex items-center gap-1.5 text-[12px] text-amber-600">
-                                    <AlertTriangle className="w-3.5 h-3.5" />
-                                    We could not complete that action. Please try again.
-                                </div>
-                            )}
-                            <div className="ml-auto flex items-center gap-2">
-                                <button
-                                    onClick={discardSuggestion}
-                                    className="px-3.5 py-2 text-[13px] font-medium text-gray-600 hover:text-gray-800 transition-colors"
-                                >
-                                    Reject
-                                </button>
-                                <button
-                                    disabled={preview.status !== 'ready'}
-                                    onClick={applySuggestion}
-                                    className="px-3.5 py-2 bg-[#6B46FF] text-white text-[13px] font-semibold rounded-lg shadow-sm disabled:bg-purple-300 flex items-center gap-1.5 hover:bg-[#6B46FF]/90 transition-colors"
-                                >
-                                    <Check className="w-3.5 h-3.5" />
-                                    Apply
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
+            {/* Suggestion Popup - Phase 3 Spec */}
+            <SuggestionPopup
+                isOpen={!!preview}
+                onClose={discardSuggestion}
+                originalText={preview?.original || ''}
+                onAccept={applySuggestion}
+                selectionRect={preview ? window.getSelection()?.getRangeAt(0).getBoundingClientRect() : null}
+                initialTab={preview?.initialTab}
+                onSendToCopilot={(query) => {
+                    setCopilotQuery(query)
+                    setShowChat(true)
+                    discardSuggestion()
+                }}
+            />
 
-            {/* Grammar/Tone Hover Bubble - anchored with viewport-aware placement */}
-            {/* Grammar/Tone Hover Bubble - Replaced by PopoverManager */}
-
-            {/* Toast with Undo - P0 Spec */}
-            {
-                toast && (
-                    <div className="fixed bottom-6 left-6 bg-gray-900 text-white text-[13px] px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-3 z-40 animate-in fade-in slide-in-from-bottom-2">
+            {/* Toast with Undo - P0 Spec - Moved to Portal */}
+            <Portal>
+                {toast && (
+                    <div className="fixed bottom-6 left-6 bg-[#1F1F1F] text-white text-[13px] px-4 py-2.5 rounded-xl shadow-2xl border border-white/10 flex items-center gap-3 z-[10000] animate-in fade-in slide-in-from-bottom-2 font-sans">
                         <span>{toast.message}</span>
                         {toast.undo && (
                             <button
@@ -798,15 +553,15 @@ const Editor: React.FC<EditorProps> = ({
                                     toast.undo?.()
                                     setToast(null)
                                 }}
-                                className="text-[#6B46FF] hover:text-[#6B46FF]/80 font-medium flex items-center gap-1"
+                                className="text-[#6F4FF0] hover:text-[#8F75FF] font-medium flex items-center gap-1"
                             >
                                 <Undo2 className="w-3.5 h-3.5" />
                                 Undo
                             </button>
                         )}
                     </div>
-                )
-            }
+                )}
+            </Portal>
 
             {/* Upload Modal */}
             {
@@ -916,20 +671,8 @@ const Editor: React.FC<EditorProps> = ({
                     }
                 }}
                 onDismiss={async (id) => {
-                    try {
-                        await fetch(trinkaApi('/api/recommendations/dismiss'), {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                userId: 'current-user',
-                                docId: 'current-doc',
-                                recommendationId: id
-                            })
-                        })
-                        setTopSuggestions(prev => prev.filter(s => s.id !== id))
-                    } catch (error) {
-                        console.error('Dismiss failed:', error)
-                    }
+                    // Mock dismissal - no API call needed in dev
+                    setTopSuggestions(prev => prev.filter(s => s.id !== id))
                 }}
                 onPreview={(rec) => {
                     // TODO: Open preview modal with diff view
@@ -951,7 +694,7 @@ const Editor: React.FC<EditorProps> = ({
                     />
                 )
             }
-            {/* Writing Score Pill */}
+            {/* Writing Score Pill - Controlled Panel */}
             <WritingScorePill
                 score={writingScore}
                 signals={qualitySignals}
@@ -960,6 +703,8 @@ const Editor: React.FC<EditorProps> = ({
                 revisionCount={revisionCount}
                 onOpenGoals={() => setShowGoalsModal(true)}
                 onOpenHistory={() => setShowVersionTimeline(true)}
+                isOpen={showHealthSidebar && !preview && !showChat} // Auto-close if popup or Copilot is open
+                onToggle={() => setShowHealthSidebar(!showHealthSidebar)}
             />
         </div >
     )

@@ -37,6 +37,41 @@ export const configureSlashCommands = ({
                             mode: 'smart',
                             icon: Sparkles
                         })
+                    },
+                    openGenerativeDraft: () => {
+                        console.log('Open Generative Draft')
+                        // TODO: Implement Generative Draft Modal
+                    },
+                    fixTopIssues: () => {
+                        requestRewriteRef.current?.({
+                            id: 'smart',
+                            label: 'Smart Edit',
+                            description: 'Auto-improve',
+                            mode: 'smart',
+                            icon: Sparkles
+                        })
+                    },
+                    summarize: () => {
+                        requestRewriteRef.current?.({
+                            id: 'shorten',
+                            label: 'Shorten',
+                            description: 'Make it concise',
+                            mode: 'shorten',
+                            icon: Sparkles
+                        })
+                    },
+                    expand: () => {
+                        requestRewriteRef.current?.({
+                            id: 'expand',
+                            label: 'Expand',
+                            description: 'Add more detail',
+                            mode: 'rewrite', // Maps to Rephrase tab
+                            icon: Sparkles
+                        })
+                    },
+                    insertCitation: () => {
+                        console.log('Insert Citation')
+                        // TODO: Implement Insert Citation
                     }
                 }
             }),

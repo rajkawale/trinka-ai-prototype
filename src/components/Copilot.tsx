@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Send, User, ChevronLeft, X, ThumbsUp, ThumbsDown, Copy, RotateCcw, Upload, Mic, Plus, FileText, Sparkles, Type, ChevronDown, EyeOff } from 'lucide-react'
-import { cn, trinkaApi } from '../lib/utils'
+import { cn, getTrinkaApi } from '../lib/utils'
 import RecommendationCard from './RecommendationCard'
 import type { Recommendation } from './RecommendationCard'
 
@@ -83,25 +83,12 @@ const Copilot = ({
     useEffect(() => {
         const userId = 'current-user' // TODO: Get from auth context
         const storageKey = `trinka.recsVisible.${userId}.${docId}`
-        // Try to load from server first, then local storage
-        fetch(trinkaApi(`/api/user-settings?userId=${userId}&docId=${docId}`))
-            .then(res => res.json())
-            .then(data => {
-                if (data.settings?.recommendationsVisible !== undefined) {
-                    setShowRecommendations(data.settings.recommendationsVisible)
-                } else {
-                    const stored = localStorage.getItem(storageKey)
-                    if (stored !== null) {
-                        setShowRecommendations(stored === 'true')
-                    }
-                }
-            })
-            .catch(() => {
-                const stored = localStorage.getItem(storageKey)
-                if (stored !== null) {
-                    setShowRecommendations(stored === 'true')
-                }
-            })
+
+        // Load from local storage directly (mocking server sync)
+        const stored = localStorage.getItem(storageKey)
+        if (stored !== null) {
+            setShowRecommendations(stored === 'true')
+        }
     }, [docId])
 
 
@@ -110,14 +97,33 @@ const Copilot = ({
         if (isPrivacyMode) return
         setRecommendationsLoading(true)
         try {
-            const response = await fetch(trinkaApi(`/api/recommendations?docId=${docId}&limit=${limit}&offset=${offset}`))
-            if (response.ok) {
-                const data = await response.json()
-                const filtered = data.items.filter((r: Recommendation) => !dismissedRecommendations.has(r.id))
-                setRecommendations(filtered)
-            } else {
-                throw new Error('Failed to fetch recommendations')
-            }
+            // Mock API call
+            await new Promise(resolve => setTimeout(resolve, 500))
+
+            // Mock recommendations
+            const mockRecs: Recommendation[] = [
+                {
+                    id: '1',
+                    title: 'Improve clarity',
+                    summary: 'Consider simplifying this sentence for better readability.',
+                    fullText: 'Consider simplifying this sentence for better readability.',
+                    originalText: 'The utilization of complex terminology...',
+                    actionType: 'rewrite',
+                    estimatedImpact: 'high'
+                },
+                {
+                    id: '2',
+                    title: 'Fix grammar',
+                    summary: 'Subject-verb agreement error.',
+                    fullText: 'Subject-verb agreement error.',
+                    originalText: 'The data show that...',
+                    actionType: 'rewrite',
+                    estimatedImpact: 'medium'
+                }
+            ]
+
+            const filtered = mockRecs.filter((r: Recommendation) => !dismissedRecommendations.has(r.id))
+            setRecommendations(filtered)
         } catch (error) {
             console.error('Failed to fetch recommendations:', error)
             if (typeof window !== 'undefined' && (window as any).analytics) {
@@ -150,36 +156,25 @@ const Copilot = ({
 
     const handleApplyRecommendation = async (recommendationId: string) => {
         try {
-            const response = await fetch(trinkaApi('/api/recommendations/apply'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    userId: 'current-user',
+            // Mock API call
+            await new Promise(resolve => setTimeout(resolve, 300))
+
+            // Remove from recommendations
+            setRecommendations(prev => prev.filter((r: Recommendation) => r.id !== recommendationId))
+
+            // Show toast
+            const suggestion = recommendations.find((r: Recommendation) => r.id === recommendationId)
+            if (suggestion) {
+                console.log(`Applied: ${suggestion.title}. Undo`)
+            }
+
+            // Emit telemetry
+            if (typeof window !== 'undefined' && (window as any).analytics) {
+                (window as any).analytics.track('suggestions.apply', {
                     docId,
-                    recommendationId
+                    suggestionId: recommendationId,
+                    impact: suggestion?.estimatedImpact
                 })
-            })
-
-            if (response.ok) {
-                await response.json()
-                // Remove from recommendations
-                setRecommendations(prev => prev.filter((r: Recommendation) => r.id !== recommendationId))
-
-                // Show toast
-                const suggestion = recommendations.find((r: Recommendation) => r.id === recommendationId)
-                if (suggestion) {
-                    // TODO: Show toast "Applied: {title}. Undo"
-                    console.log(`Applied: ${suggestion.title}. Undo`)
-                }
-
-                // Emit telemetry
-                if (typeof window !== 'undefined' && (window as any).analytics) {
-                    (window as any).analytics.track('suggestions.apply', {
-                        docId,
-                        suggestionId: recommendationId,
-                        impact: suggestion?.estimatedImpact
-                    })
-                }
             }
         } catch (error) {
             console.error('Apply failed:', error)
@@ -188,15 +183,8 @@ const Copilot = ({
 
     const handleDismissRecommendation = async (recommendationId: string) => {
         try {
-            await fetch(trinkaApi('/api/recommendations/dismiss'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    userId: 'current-user',
-                    docId,
-                    recommendationId
-                })
-            })
+            // Mock API call
+            await new Promise(resolve => setTimeout(resolve, 200))
 
             setDismissedRecommendations(prev => new Set([...Array.from(prev), recommendationId]))
             setRecommendations(prev => prev.filter((r: Recommendation) => r.id !== recommendationId))
@@ -295,15 +283,8 @@ const Copilot = ({
         localStorage.setItem(storageKey, String(newState))
 
         // Sync to server
-        fetch(trinkaApi('/api/user-settings'), {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                userId,
-                docId,
-                settings: { recommendationsVisible: newState }
-            })
-        }).catch(console.error)
+        // Mock server sync
+        console.log('Synced settings:', { recommendationsVisible: newState })
 
         // Emit telemetry
         if (typeof window !== 'undefined' && (window as any).analytics) {
@@ -341,7 +322,7 @@ const Copilot = ({
         requestStartTime.current = Date.now()
 
         try {
-            const response = await fetch(trinkaApi('/chat'), {
+            const response = await fetch(getTrinkaApi('/chat'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

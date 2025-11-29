@@ -1,9 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { Editor } from '@tiptap/react'
-import { trinkaApi } from '../../lib/utils'
-import type { Recommendation, ActionType } from '../../components/RecommendationCard'
-import RecommendationDetailPopover from '../../components/RecommendationDetailPopover'
-import { usePopover } from '../../components/PopoverManager'
+import { getTrinkaApi } from '../../lib/utils'
+
 
 export interface AiAction {
     id: string
@@ -25,7 +23,6 @@ interface UseAIProps {
 export function useAI({ editor, setRevisionCount, setVersions, showToast, createRequestId }: UseAIProps) {
     const [preview, setPreview] = useState<any>(null)
     const requestRewriteRef = useRef<any>(null)
-    const { openPopover, closePopover } = usePopover()
 
     const createSnapshot = useCallback(async (action: string, delta: string) => {
         const snapshot = {
@@ -40,7 +37,7 @@ export function useAI({ editor, setRevisionCount, setVersions, showToast, create
         try {
             const plainText = editor?.state.doc.textBetween(0, editor.state.doc.content.size, ' ') || ''
             const words = plainText.trim().split(/\s+/).filter(Boolean).length
-            await fetch(trinkaApi('/versions'), {
+            await fetch(getTrinkaApi('/versions'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -66,66 +63,53 @@ export function useAI({ editor, setRevisionCount, setVersions, showToast, create
             return
         }
 
-        const id = `rec-${Date.now()}`
-        const recommendation: Recommendation = {
-            id,
-            title: action.label,
-            summary: 'Generating...',
-            fullText: 'Generating...',
-            originalText: selected,
-            actionType: action.mode as ActionType,
-            estimatedImpact: 'medium',
-            range: { from, to }
-        }
-
-        const range = document.createRange()
-        const selection = window.getSelection()
-        if (selection && selection.rangeCount > 0) {
-            range.setStart(selection.getRangeAt(0).startContainer, selection.getRangeAt(0).startOffset)
-            range.setEnd(selection.getRangeAt(0).endContainer, selection.getRangeAt(0).endOffset)
-        }
-
-        openPopover(range, (
-            <RecommendationDetailPopover
-                recommendation={recommendation}
-                docId="current-doc"
-                onClose={closePopover}
-                onShowToast={showToast}
-                onApply={(text) => {
-                    editor.chain()
-                        .focus()
-                        .insertContentAt({ from, to }, text)
-                        .run()
-
-                    setRevisionCount(prev => prev + 1)
-                    showToast('Suggestion applied')
-                    createSnapshot(action.label, text)
-                }}
-            />
-        ), {
-            placement: 'bottom',
-            offset: 8,
-            isInteractive: true
+        // Phase 3: Use SuggestionPopup via preview state
+        setPreview({
+            status: 'idle',
+            label: action.label,
+            original: selected,
+            range: { from, to },
+            initialTab: mapModeToTab(action.mode, action.tone)
         })
-    }, [editor, openPopover, closePopover, showToast, setRevisionCount, createSnapshot])
+    }, [editor, showToast])
+
+    function mapModeToTab(mode: string, tone?: string): string {
+        if (mode === 'shorten') return 'shorten'
+        if (mode === 'rewrite' || mode === 'paraphrase') return 'rephrase'
+        if (mode === 'tone') return tone === 'friendly' ? 'friendly' : 'formal'
+        return 'improve'
+    }
 
     useEffect(() => {
         requestRewriteRef.current = requestRewrite
     }, [requestRewrite])
 
-    const applySuggestion = useCallback(() => {
-        if (!editor || !preview || preview.status !== 'ready') return
+    const applySuggestion = useCallback((text?: string) => {
+        console.log('[useAI] applySuggestion called')
+        if (!editor || !preview) {
+            console.log('[useAI] applySuggestion aborted: editor or preview missing', { editor: !!editor, preview: !!preview })
+            return
+        }
 
-        editor
-            .chain()
-            .focus()
-            .insertContentAt({ from: preview.range.from, to: preview.range.to }, preview.suggestion)
-            .run()
+        const contentToInsert = text || preview.suggestion
+        console.log('[useAI] Inserting content', contentToInsert)
 
-        const delta = JSON.stringify({ from: preview.range.from, to: preview.range.to, text: preview.suggestion })
+        try {
+            editor
+                .chain()
+                .focus()
+                .insertContentAt({ from: preview.range.from, to: preview.range.to }, contentToInsert)
+                .run()
+            console.log('[useAI] Content inserted successfully')
+        } catch (e) {
+            console.error('[useAI] Error inserting content', e)
+        }
+
+        const delta = JSON.stringify({ from: preview.range.from, to: preview.range.to, text: contentToInsert })
         createSnapshot('AI rewrite', delta)
 
         showToast('Suggestion applied')
+        console.log('[useAI] Setting preview to null')
         setPreview(null)
     }, [editor, preview, createSnapshot, showToast])
 

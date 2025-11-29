@@ -105,6 +105,61 @@ export const getSuggestionItems = ({ query, callbacks }: { query: string, callba
                 callbacks.openPreferences?.()
             },
         },
+        {
+            title: 'Generative Draft',
+            description: 'Write a new paragraph with AI',
+            searchTerms: ['write', 'draft', 'generate'],
+            icon: Sparkles,
+            category: 'AI Actions',
+            command: ({ editor, range }: { editor: any, range: any }) => {
+                editor.chain().focus().deleteRange(range).run()
+                callbacks.openGenerativeDraft?.()
+            },
+        },
+        {
+            title: 'Fix Top Issues',
+            description: 'Apply high-priority fixes',
+            searchTerms: ['fix', 'issues', 'correct'],
+            icon: Sparkles,
+            category: 'AI Actions',
+            command: ({ editor, range }: { editor: any, range: any }) => {
+                editor.chain().focus().deleteRange(range).run()
+                callbacks.fixTopIssues?.()
+            },
+        },
+        {
+            title: 'Summarize',
+            description: 'Summarize selected text',
+            searchTerms: ['summarize', 'summary', 'shorten'],
+            icon: FileText,
+            category: 'AI Actions',
+            command: ({ editor, range }: { editor: any, range: any }) => {
+                editor.chain().focus().deleteRange(range).run()
+                callbacks.summarize?.()
+            },
+        },
+        {
+            title: 'Expand',
+            description: 'Elaborate on selected text',
+            searchTerms: ['expand', 'elaborate', 'more'],
+            icon: FileText,
+            category: 'AI Actions',
+            command: ({ editor, range }: { editor: any, range: any }) => {
+                editor.chain().focus().deleteRange(range).run()
+                callbacks.expand?.()
+            },
+        },
+        {
+            title: 'Insert Citation',
+            description: 'Find and insert a citation',
+            searchTerms: ['citation', 'cite', 'reference'],
+            icon: BookOpen,
+            category: 'Insert',
+            command: ({ editor, range }: { editor: any, range: any }) => {
+                editor.chain().focus().deleteRange(range).run()
+                callbacks.insertCitation?.()
+            },
+        },
 
         // FORMATTING
         {
