@@ -12,6 +12,39 @@ interface Message {
     metadata?: string
 }
 
+const MOCK_RECOMMENDATIONS: Recommendation[] = [
+    {
+        id: 'mock-1',
+        title: 'Improve clarity',
+        summary: 'Simplify sentence structure for better readability.',
+        fullText: 'Consider breaking this long sentence into two for better readability.',
+        originalText: '...',
+        actionType: 'rewrite',
+        estimatedImpact: 'high',
+        range: { from: 0, to: 0 }
+    },
+    {
+        id: 'mock-2',
+        title: 'Fix tone',
+        summary: 'Change "kids" to "children" for academic tone.',
+        fullText: 'Change "kids" to "children" to maintain a formal academic tone.',
+        originalText: 'kids',
+        actionType: 'tone',
+        estimatedImpact: 'medium',
+        range: { from: 0, to: 0 }
+    },
+    {
+        id: 'mock-3',
+        title: 'Fix grammar',
+        summary: 'Correct subject-verb agreement.',
+        fullText: 'The data suggests (not suggest) that the hypothesis is valid.',
+        originalText: 'suggest',
+        actionType: 'rewrite',
+        estimatedImpact: 'high',
+        range: { from: 0, to: 0 }
+    }
+]
+
 const Copilot = ({
     isCompact,
     onToggleCompact,
@@ -20,7 +53,10 @@ const Copilot = ({
     docId = 'default-doc',
     defaultShowRecommendations = true,
     isPrivacyMode = false,
-    initialQuery = ''
+    initialQuery = '',
+    initialMessage,
+    onMessageHandled,
+    onInsertText
 }: {
     isCompact?: boolean
     onToggleCompact?: () => void
@@ -30,16 +66,24 @@ const Copilot = ({
     defaultShowRecommendations?: boolean
     isPrivacyMode?: boolean
     initialQuery?: string
+    initialMessage?: string | null
+    onMessageHandled?: () => void
+    onInsertText?: (text: string) => void
 }) => {
     const [messages, setMessages] = useState<Message[]>([])
-    const [input, setInput] = useState(initialQuery)
+    const [input, setInput] = useState(initialQuery || initialMessage || '')
 
-    // Update input when initialQuery changes
+    // Update input when initialQuery or initialMessage changes
     useEffect(() => {
-        if (initialQuery) {
+        if (initialMessage) {
+            setInput(initialMessage)
+            // Optional: Auto-send if it's a direct command
+            if (onMessageHandled) onMessageHandled()
+        } else if (initialQuery) {
             setInput(initialQuery)
         }
-    }, [initialQuery])
+    }, [initialQuery, initialMessage, onMessageHandled])
+
     const [isLoading, setIsLoading] = useState(false)
     const [status, setStatus] = useState<'idle' | 'streaming'>('idle')
     const [clarifyingQuestion, setClarifyingQuestion] = useState<string | null>(null)
@@ -51,551 +95,252 @@ const Copilot = ({
     const [selectedTone, setSelectedTone] = useState('Standard')
     const [showModelSelector, setShowModelSelector] = useState(false)
     const [showToneSelector, setShowToneSelector] = useState(false)
-    const [showRecommendations, setShowRecommendations] = useState(defaultShowRecommendations)
     const [recommendations, setRecommendations] = useState<Recommendation[]>([])
-    const [recommendationsExpanded, setRecommendationsExpanded] = useState(false)
-    const [recommendationsLoading, setRecommendationsLoading] = useState(false)
-    const [dismissedRecommendations, setDismissedRecommendations] = useState<Set<string>>(new Set())
-    const [isRecording, setIsRecording] = useState(false)
-    const [isVoiceAvailable, setIsVoiceAvailable] = useState(false)
+
     const messagesEndRef = useRef<HTMLDivElement>(null)
-    const inputRef = useRef<HTMLInputElement>(null)
-    const requestStartTime = useRef<number>(0)
-    const modelSelectorRef = useRef<HTMLDivElement>(null)
-    const toneSelectorRef = useRef<HTMLDivElement>(null)
+    const fileInputRef = useRef<HTMLInputElement>(null)
 
     const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
 
     useEffect(() => {
         scrollToBottom()
-    }, [messages])
+    }, [messages, status])
 
-    // Focus composer when Copilot opens
+    // Load recommendations
     useEffect(() => {
-        if (inputRef.current) {
-            inputRef.current.focus()
+        if (defaultShowRecommendations) {
+            setRecommendations(MOCK_RECOMMENDATIONS)
         }
-    }, [])
+    }, [defaultShowRecommendations])
 
-    // Load recommendations visibility from storage
-    useEffect(() => {
-        const userId = 'current-user' // TODO: Get from auth context
-        const storageKey = `trinka.recsVisible.${userId}.${docId}`
-
-        // Load from local storage directly (mocking server sync)
-        const stored = localStorage.getItem(storageKey)
-        if (stored !== null) {
-            setShowRecommendations(stored === 'true')
-        }
-    }, [docId])
-
-
-    // Fetch recommendations
-    const fetchRecommendations = async (limit = 5, offset = 0) => {
-        if (isPrivacyMode) return
-        setRecommendationsLoading(true)
-        try {
-            // Mock API call
-            await new Promise(resolve => setTimeout(resolve, 500))
-
-            // Mock recommendations
-            const mockRecs: Recommendation[] = [
-                {
-                    id: '1',
-                    title: 'Improve clarity',
-                    summary: 'Consider simplifying this sentence for better readability.',
-                    fullText: 'Consider simplifying this sentence for better readability.',
-                    originalText: 'The utilization of complex terminology...',
-                    actionType: 'rewrite',
-                    estimatedImpact: 'high'
-                },
-                {
-                    id: '2',
-                    title: 'Fix grammar',
-                    summary: 'Subject-verb agreement error.',
-                    fullText: 'Subject-verb agreement error.',
-                    originalText: 'The data show that...',
-                    actionType: 'rewrite',
-                    estimatedImpact: 'medium'
-                }
-            ]
-
-            const filtered = mockRecs.filter((r: Recommendation) => !dismissedRecommendations.has(r.id))
-            setRecommendations(filtered)
-        } catch (error) {
-            console.error('Failed to fetch recommendations:', error)
-            if (typeof window !== 'undefined' && (window as any).analytics) {
-                (window as any).analytics.track('rec.fetch.error', { docId })
-            }
-        } finally {
-            setRecommendationsLoading(false)
-        }
-    }
-
-    useEffect(() => {
-        if (showRecommendations && messages.length === 0 && !isPrivacyMode) {
-            fetchRecommendations(recommendationsExpanded ? 15 : 5)
-        }
-    }, [showRecommendations, recommendationsExpanded, docId, messages.length, isPrivacyMode])
-
-    const handleShowMore = () => {
-        const newExpanded = !recommendationsExpanded
-        setRecommendationsExpanded(newExpanded)
-
-        if (typeof window !== 'undefined' && (window as any).analytics) {
-            (window as any).analytics.track('rec.showMore', {
-                docId,
-                requestedCount: newExpanded ? 15 : 5
-            })
-        }
-
-        fetchRecommendations(newExpanded ? 15 : 5)
-    }
-
-    const handleApplyRecommendation = async (recommendationId: string) => {
-        try {
-            // Mock API call
-            await new Promise(resolve => setTimeout(resolve, 300))
-
-            // Remove from recommendations
-            setRecommendations(prev => prev.filter((r: Recommendation) => r.id !== recommendationId))
-
-            // Show toast
-            const suggestion = recommendations.find((r: Recommendation) => r.id === recommendationId)
-            if (suggestion) {
-                console.log(`Applied: ${suggestion.title}. Undo`)
-            }
-
-            // Emit telemetry
-            if (typeof window !== 'undefined' && (window as any).analytics) {
-                (window as any).analytics.track('suggestions.apply', {
-                    docId,
-                    suggestionId: recommendationId,
-                    impact: suggestion?.estimatedImpact
-                })
-            }
-        } catch (error) {
-            console.error('Apply failed:', error)
-        }
-    }
-
-    const handleDismissRecommendation = async (recommendationId: string) => {
-        try {
-            // Mock API call
-            await new Promise(resolve => setTimeout(resolve, 200))
-
-            setDismissedRecommendations(prev => new Set([...Array.from(prev), recommendationId]))
-            setRecommendations(prev => prev.filter((r: Recommendation) => r.id !== recommendationId))
-
-            // Emit telemetry
-            if (typeof window !== 'undefined' && (window as any).analytics) {
-                (window as any).analytics.track('suggestions.dismiss', {
-                    docId,
-                    suggestionId: recommendationId
-                })
-            }
-        } catch (error) {
-            console.error('Dismiss failed:', error)
-        }
-    }
-
-    // Check voice availability
-    useEffect(() => {
-        try {
-            if (typeof navigator !== 'undefined' && navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
-                setIsVoiceAvailable(true)
-            }
-        } catch (e) {
-            setIsVoiceAvailable(false)
-        }
-    }, [])
-
-    // Close selectors when clicking outside
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (modelSelectorRef.current && !modelSelectorRef.current.contains(event.target as Node)) {
-                setShowModelSelector(false)
-            }
-            if (toneSelectorRef.current && !toneSelectorRef.current.contains(event.target as Node)) {
-                setShowToneSelector(false)
-            }
-        }
-        document.addEventListener('mousedown', handleClickOutside)
-        return () => document.removeEventListener('mousedown', handleClickOutside)
-    }, [])
-
-    // Keyboard shortcuts
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            const activeElement = document.activeElement
-            const isInCopilot = activeElement?.closest('.copilot-panel')
-
-            if (!isInCopilot) return
-
-            // R toggles Recommended Actions when Copilot has focus
-            if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey && !e.altKey) {
-                e.preventDefault()
-                toggleRecommendations()
-            }
-
-            // M opens model/tone selector when composer has focus
-            if ((e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.metaKey && !e.altKey) {
-                const activeElement = document.activeElement
-                if (activeElement === inputRef.current) {
-                    e.preventDefault()
-                    setShowModelSelector(true)
-                }
-            }
-
-            // U opens upload modal
-            if ((e.key === 'u' || e.key === 'U') && !e.ctrlKey && !e.metaKey && !e.altKey) {
-                const activeElement = document.activeElement
-                if (activeElement?.closest('.copilot-panel')) {
-                    e.preventDefault()
-                    setShowUploadModal(true)
-                }
-            }
-
-            // Enter sends message, Shift+Enter creates newline
-            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                e.preventDefault()
-                if (input.trim() && !isLoading) {
-                    handleSubmit(e as any)
-                }
-            }
-            if (e.key === 'Escape') {
-                setClarifyingQuestion(null)
-            }
-        }
-        window.addEventListener('keydown', handleKeyDown)
-        return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [input, isLoading, showRecommendations])
-
-    // Persist recommendations visibility
-    const toggleRecommendations = () => {
-        const newState = !showRecommendations
-        setShowRecommendations(newState)
-
-        const userId = 'current-user'
-        const storageKey = `trinka.recsVisible.${userId}.${docId}`
-        localStorage.setItem(storageKey, String(newState))
-
-        // Sync to server
-        // Mock server sync
-        console.log('Synced settings:', { recommendationsVisible: newState })
-
-        // Emit telemetry
-        if (typeof window !== 'undefined' && (window as any).analytics) {
-            (window as any).analytics.track('rec.panel.toggle', {
-                docId,
-                newState
-            })
-        }
-    }
-
-    const sendPrompt = useCallback(async (prompt: string, meta?: { intent?: string; tone?: string }) => {
-        if (!prompt.trim()) return
-
-        const intent = meta?.intent || 'rewrite'
-        const tone = meta?.tone || 'academic'
-
-        // Simulate clarifying question for ambiguous prompts
-        if (prompt.length < 10 && !meta) {
-            setClarifyingQuestion('What would you like me to do?')
-            return
-        }
+    const handleSend = async () => {
+        if (!input.trim() && uploadedFiles.length === 0) return
 
         const userMessage: Message = {
             id: Date.now().toString(),
             role: 'user',
-            content: prompt,
-            intent
+            content: input,
+            metadata: uploadedFiles.length > 0 ? `Attached: ${uploadedFiles.map(f => f.name).join(', ')}` : undefined
         }
 
         setMessages(prev => [...prev, userMessage])
+        setInput('')
+        setUploadedFiles([])
         setIsLoading(true)
         setStatus('streaming')
         setStreamingProgress(0)
-        setClarifyingQuestion(null)
-        requestStartTime.current = Date.now()
 
+        // Simulate streaming response
         try {
-            const response = await fetch(getTrinkaApi('/chat'), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    message: prompt,
-                    intent,
-                    tone
-                }),
-            })
+            // Simulate network delay
+            await new Promise(resolve => setTimeout(resolve, 800))
 
-            if (!response.body) return
+            const responseId = (Date.now() + 1).toString()
+            let responseContent = ''
+            const fullResponse = "I can certainly help you with that. Based on your document's context, here is a revised version that improves flow and clarity."
 
-            const reader = response.body.getReader()
-            const decoder = new TextDecoder()
+            // Stream characters
+            const chars = fullResponse.split('')
+            setMessages(prev => [...prev, { id: responseId, role: 'assistant', content: '' }])
 
-            const assistantMessageId = (Date.now() + 1).toString()
-            setMessages(prev => [...prev, {
-                id: assistantMessageId,
-                role: 'assistant',
-                content: '',
-                intent
-            }])
-
-            let receivedFirstToken = false
-            let tokenCount = 0
-
-            while (true) {
-                const { value, done } = await reader.read()
-                if (done) break
-
-                const chunk = decoder.decode(value, { stream: true })
-                if (!receivedFirstToken && chunk.trim().length) {
-                    receivedFirstToken = true
-                    setStatus('streaming')
-                }
-                tokenCount += chunk.length
-                setStreamingProgress(Math.min(100, (tokenCount / 500) * 100))
-                setMessages(prev => prev.map(msg =>
-                    msg.id === assistantMessageId
-                        ? { ...msg, content: msg.content + chunk }
-                        : msg
-                ))
+            for (let i = 0; i < chars.length; i++) {
+                await new Promise(resolve => setTimeout(resolve, 15)) // Typing effect
+                responseContent += chars[i]
+                setMessages(prev => prev.map(m => m.id === responseId ? { ...m, content: responseContent } : m))
+                setStreamingProgress(Math.round((i / chars.length) * 100))
             }
-            setIsLoading(false)
-            setStatus('idle')
-            setStreamingProgress(0)
 
-            // Record action history (saves silently, no popup)
-            setActionHistory(prev => {
-                const newHistory = [{
-                    id: assistantMessageId,
-                    action: `${intent}: ${prompt.slice(0, 30)}...`,
-                    timestamp: new Date().toLocaleTimeString()
-                }, ...prev].slice(0, 5)
-                console.log('Action saved to history:', newHistory[0])
-                return newHistory
-            })
+            setStatus('idle')
         } catch (error) {
-            console.error('Error fetching chat response:', error)
-            setIsLoading(false)
+            console.error('Chat error:', error)
             setMessages(prev => [...prev, {
-                id: (Date.now() + 1).toString(),
+                id: Date.now().toString(),
                 role: 'assistant',
-                content: "Sorry, I couldn't connect to the server. Please make sure the backend is running."
+                content: "I'm having trouble connecting right now. Please try again."
             }])
+        } finally {
+            setIsLoading(false)
             setStatus('idle')
-            setStreamingProgress(0)
         }
-    }, [])
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault()
-        if (!input.trim() || isLoading) return
-        const currentInput = input
-        setInput('')
-        // Hide recommendations when user starts typing
-        if (showRecommendations && messages.length === 0) {
-            setShowRecommendations(false)
-        }
-        sendPrompt(currentInput)
     }
 
     const handleFileUpload = (files: FileList | null) => {
         if (!files) return
-        const fileArray = Array.from(files)
-        const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.openxmlformats-officedocument.presentationml.presentation']
-        const validFiles = fileArray.filter(f => allowedTypes.includes(f.type))
-        setUploadedFiles(prev => [...prev, ...validFiles])
+        const newFiles = Array.from(files)
+        setUploadedFiles(prev => [...prev, ...newFiles])
     }
 
-    const handleQuickReply = (reply: string) => {
-        setClarifyingQuestion(null)
-        sendPrompt(reply)
+    const handleRecommendationApply = (id: string, text: string) => {
+        // In a real app, this would apply to the editor
+        console.log('Applying recommendation:', id, text)
+        setRecommendations(prev => prev.filter(r => r.id !== id))
+
+        // Add system message confirming action
+        setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: `Applied change: "${text}"`
+        }])
     }
 
-    if (isCompact) {
-        return (
-            <div className="flex flex-col h-full bg-white border-l border-gray-200 w-12 items-center py-4">
-                <button
-                    onClick={onToggleCompact}
-                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                    aria-label="Expand Copilot"
-                >
-                    <ChevronLeft className="w-5 h-5 text-gray-600" />
-                </button>
-            </div>
-        )
+    const handleRecommendationDismiss = (id: string) => {
+        setRecommendations(prev => prev.filter(r => r.id !== id))
     }
 
     return (
-        <div className="flex flex-col h-full bg-white copilot-panel">
-            {/* Compact Header */}
-            <div className="px-4 py-3 border-b border-gray-100 bg-white">
-                <div className="flex items-center justify-between">
-                    <h2 className="text-sm font-semibold text-gray-800">Copilot</h2>
-                    <div className="flex items-center gap-2">
-                        {/* Show/Hide Recommended Actions Toggle */}
-                        {showRecommendations ? (
-                            <button
-                                onClick={toggleRecommendations}
-                                className="flex items-center gap-1.5 px-2.5 py-1 text-[12px] text-gray-600 hover:text-gray-800 transition-colors"
-                                aria-pressed="true"
-                                aria-label="Hide recommendations"
-                            >
-                                <EyeOff className="w-3.5 h-3.5" />
-                                Hide suggestions
-                            </button>
-                        ) : (
-                            <button
-                                onClick={toggleRecommendations}
-                                className="flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-medium text-[#6C2BD9] bg-[#6C2BD9]/10 hover:bg-[#6C2BD9]/20 rounded-full transition-colors"
-                                aria-pressed="false"
-                                aria-label="Show recommendations"
-                            >
-                                Recommendations hidden • Show
-                            </button>
-                        )}
-                        {onClose && (
-                            <button
-                                onClick={onClose}
-                                className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-600"
-                                title="Close chat"
-                                aria-label="Close chat"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
-                        )}
+        <div className={cn(
+            "flex flex-col h-full bg-white relative",
+            isCompact ? "p-2" : "p-0"
+        )}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 bg-gradient-to-br from-[#6C2BD9] to-[#8B5CF6] rounded-lg flex items-center justify-center shadow-sm">
+                        <Sparkles className="w-4 h-4 text-white" />
+                    </div>
+                    <div>
+                        <h2 className="font-semibold text-gray-800 text-sm">Trinka Copilot</h2>
+                        <div className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                            <span className="text-[10px] text-gray-500 font-medium">
+                                {status === 'streaming' ? 'Thinking...' : 'Online'}
+                            </span>
+                        </div>
                     </div>
                 </div>
-
-                {/* Streaming Progress Bar */}
-                {status === 'streaming' && (
-                    <div className="h-0.5 bg-gray-200 rounded-full overflow-hidden mt-2">
-                        <div
-                            className="h-full bg-[#6C2BD9] transition-all duration-300"
-                            style={{ width: `${streamingProgress}%` }}
-                        />
-                    </div>
-                )}
+                <div className="flex items-center gap-1">
+                    {isPrivacyMode && (
+                        <div className="mr-2 px-2 py-0.5 bg-gray-100 rounded-full flex items-center gap-1 text-[10px] text-gray-600" title="Privacy Mode On">
+                            <EyeOff className="w-3 h-3" />
+                            <span>Private</span>
+                        </div>
+                    )}
+                    <button
+                        onClick={onToggleCompact}
+                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                    >
+                        {isCompact ? <ChevronLeft className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4 rotate-180" />}
+                    </button>
+                    <button
+                        onClick={onClose}
+                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                    >
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
             </div>
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                {/* Recommended Actions - Collapsible */}
-                {showRecommendations && messages.length === 0 && !isLoading && !isPrivacyMode && (
-                    <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
-                        <div className="text-[11px] uppercase tracking-wide text-[#6b6f76] font-medium">
-                            Recommended actions
+            <div className="flex-1 overflow-y-auto p-4 space-y-6 scroll-smooth">
+                {/* Welcome State */}
+                {messages.length === 0 && recommendations.length === 0 && (
+                    <div className="text-center py-8 space-y-4">
+                        <div className="w-16 h-16 bg-purple-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                            <Sparkles className="w-8 h-8 text-[#6C2BD9]" />
                         </div>
-                        {recommendationsLoading ? (
-                            <div className="text-center py-4 text-gray-400 text-sm">Loading recommendations...</div>
-                        ) : recommendations.length === 0 ? (
-                            <div className="p-3 border border-gray-200 rounded-lg">
-                                <p className="text-[13px] text-gray-600 mb-2">Recommendations unavailable. Retry</p>
-                                <button
-                                    onClick={() => fetchRecommendations(recommendationsExpanded ? 15 : 5)}
-                                    className="text-[12px] text-[#6C2BD9] hover:text-[#6C2BD9]/80 font-medium"
-                                >
-                                    Retry
-                                </button>
-                            </div>
-                        ) : (
-                            <>
-                                <div className="space-y-1.5">
-                                    {recommendations.slice(0, recommendationsExpanded ? 15 : 5).map((rec) => (
-                                        <RecommendationCard
-                                            key={rec.id}
-                                            recommendation={rec}
-                                            docId={docId}
-                                            onApply={handleApplyRecommendation}
-                                            onDismiss={handleDismissRecommendation}
-                                        />
-                                    ))}
-                                </div>
-                                {recommendations.length > 5 && (
-                                    <button
-                                        onClick={handleShowMore}
-                                        className="text-[12px] text-[#6C2BD9] hover:text-[#6C2BD9]/80 font-medium transition-colors"
-                                    >
-                                        {recommendationsExpanded ? 'Show less' : 'Show more'}
-                                    </button>
-                                )}
-                            </>
-                        )}
+                        <h3 className="text-gray-900 font-medium">How can I help you today?</h3>
+                        <p className="text-sm text-gray-500 max-w-[240px] mx-auto">
+                            I can help you write, edit, and improve your document. Try asking me to:
+                        </p>
+                        <div className="grid grid-cols-1 gap-2 max-w-[260px] mx-auto">
+                            <button onClick={() => setInput("Summarize this document")} className="text-xs text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-lg text-gray-600 transition-colors">
+                                📝 Summarize this document
+                            </button>
+                            <button onClick={() => setInput("Fix grammar and tone")} className="text-xs text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-lg text-gray-600 transition-colors">
+                                ✨ Fix grammar and tone
+                            </button>
+                            <button onClick={() => setInput("Make it more academic")} className="text-xs text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-lg text-gray-600 transition-colors">
+                                🎓 Make it more academic
+                            </button>
+                        </div>
                     </div>
                 )}
 
-                {/* Empty State */}
-                {messages.length === 0 && !isLoading && !showRecommendations && (
-                    <div className="text-center py-12 text-gray-400">
-                        <p className="text-sm">How can I help you rewrite or expand this?</p>
+                {/* Recommendations Stream */}
+                {recommendations.length > 0 && (
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-2 text-xs font-medium text-gray-500 uppercase tracking-wider px-1">
+                            <Sparkles className="w-3 h-3" />
+                            Suggested Improvements
+                        </div>
+                        {recommendations.map(rec => (
+                            <RecommendationCard
+                                key={rec.id}
+                                recommendation={rec}
+                                onApply={(id, text) => handleRecommendationApply(id, text)}
+                                onDismiss={handleRecommendationDismiss}
+                            />
+                        ))}
                     </div>
                 )}
 
-                {/* Active Chat Messages */}
-                {messages.map((message) => (
+                {/* Chat Messages */}
+                {messages.map((msg) => (
                     <div
-                        key={message.id}
+                        key={msg.id}
                         className={cn(
-                            "flex gap-2.5 text-[13px] animate-in fade-in group",
-                            message.role === 'user' ? "flex-row-reverse" : "flex-row"
+                            "flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300",
+                            msg.role === 'user' ? "flex-row-reverse" : "flex-row"
                         )}
                     >
-                        {message.role === 'user' && (
-                            <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 bg-blue-100 text-blue-600">
-                                <User className="w-3.5 h-3.5" />
-                            </div>
-                        )}
-                        <div className="flex-1 space-y-1">
-                            {message.metadata && (
-                                <div className="text-[11px] text-[#6b6f76]">{message.metadata}</div>
+                        <div className={cn(
+                            "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm",
+                            msg.role === 'user' ? "bg-gray-900" : "bg-[#6C2BD9]"
+                        )}>
+                            {msg.role === 'user' ? (
+                                <User className="w-4 h-4 text-white" />
+                            ) : (
+                                <Sparkles className="w-4 h-4 text-white" />
                             )}
-                            <div className={cn(
-                                "px-3.5 py-2.5 rounded-xl max-w-[85%] relative",
-                                message.role === 'user'
-                                    ? "bg-[#6C2BD9] text-white rounded-tr-none ml-auto"
-                                    : "bg-gray-100 text-gray-800 rounded-tl-none border-l-2 border-[#6C2BD9]"
-                            )}>
-                                {message.content}
-                            </div>
-                            {/* Action buttons for assistant messages */}
-                            {message.role === 'assistant' && (
-                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        </div>
+                        <div className={cn(
+                            "max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm",
+                            msg.role === 'user'
+                                ? "bg-gray-900 text-white rounded-tr-none"
+                                : "bg-white border border-gray-100 text-gray-700 rounded-tl-none"
+                        )}>
+                            {msg.metadata && (
+                                <div className="mb-2 pb-2 border-b border-white/10 text-xs opacity-70 flex items-center gap-1">
+                                    <FileText className="w-3 h-3" />
+                                    {msg.metadata}
+                                </div>
+                            )}
+                            <div className="whitespace-pre-wrap">{msg.content}</div>
+
+                            {/* Assistant Actions */}
+                            {msg.role === 'assistant' && (
+                                <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2">
                                     <button
-                                        className="p-1.5 hover:bg-gray-200 rounded transition-colors"
-                                        title="Thumbs up"
-                                        aria-label="Thumbs up"
-                                    >
-                                        <ThumbsUp className="w-3.5 h-3.5 text-gray-600" />
-                                    </button>
-                                    <button
-                                        className="p-1.5 hover:bg-gray-200 rounded transition-colors"
-                                        title="Thumbs down"
-                                        aria-label="Thumbs down"
-                                    >
-                                        <ThumbsDown className="w-3.5 h-3.5 text-gray-600" />
-                                    </button>
-                                    <button
-                                        className="p-1.5 hover:bg-gray-200 rounded transition-colors"
+                                        className="p-1.5 hover:bg-gray-50 rounded text-gray-400 hover:text-gray-600 transition-colors"
                                         title="Copy"
-                                        aria-label="Copy message"
                                         onClick={() => {
-                                            navigator.clipboard.writeText(message.content)
+                                            navigator.clipboard.writeText(msg.content)
+                                            // TODO: Show toast
                                         }}
                                     >
-                                        <Copy className="w-3.5 h-3.5 text-gray-600" />
+                                        <Copy className="w-3.5 h-3.5" />
                                     </button>
-                                    <button
-                                        className="p-1.5 hover:bg-gray-200 rounded transition-colors"
-                                        title="Regenerate"
-                                        aria-label="Regenerate response"
-                                    >
-                                        <RotateCcw className="w-3.5 h-3.5 text-gray-600" />
+                                    <button className="p-1.5 hover:bg-gray-50 rounded text-gray-400 hover:text-gray-600 transition-colors" title="Regenerate">
+                                        <RotateCcw className="w-3.5 h-3.5" />
                                     </button>
+                                    <div className="h-3 w-px bg-gray-200 mx-1" />
+                                    <button className="p-1.5 hover:bg-gray-50 rounded text-gray-400 hover:text-green-600 transition-colors">
+                                        <ThumbsUp className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button className="p-1.5 hover:bg-gray-50 rounded text-gray-400 hover:text-red-600 transition-colors">
+                                        <ThumbsDown className="w-3.5 h-3.5" />
+                                    </button>
+                                    {onInsertText && (
+                                        <button
+                                            onClick={() => onInsertText(msg.content)}
+                                            className="ml-auto flex items-center gap-1 text-xs font-medium text-[#6C2BD9] hover:bg-[#6C2BD9]/5 px-2 py-1 rounded transition-colors"
+                                        >
+                                            <Plus className="w-3 h-3" />
+                                            Insert
+                                        </button>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -604,159 +349,58 @@ const Copilot = ({
 
                 {/* Clarifying Question */}
                 {clarifyingQuestion && (
-                    <div className="space-y-2">
-                        <div className="flex gap-2.5 text-[13px]">
-                            <div className="flex-1">
-                                <div className="px-3.5 py-2.5 rounded-xl rounded-tl-none bg-gray-100 text-gray-800 border-l-2 border-[#6C2BD9]">
-                                    {clarifyingQuestion}
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                            {['Summarize section?', 'Rewrite academically?', 'Fix tone only?'].map((reply) => (
-                                <button
-                                    key={reply}
-                                    onClick={() => handleQuickReply(reply)}
-                                    className="px-2.5 py-1 rounded-full text-[11px] bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors"
-                                    aria-label={reply}
-                                >
-                                    {reply}
-                                </button>
-                            ))}
+                    <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 animate-in fade-in">
+                        <p className="text-sm text-blue-800 font-medium mb-2">I need a bit more context:</p>
+                        <p className="text-sm text-blue-700 mb-3">{clarifyingQuestion}</p>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => {
+                                    setInput("Yes, keep it formal")
+                                    setClarifyingQuestion(null)
+                                }}
+                                className="px-3 py-1.5 bg-white border border-blue-200 text-blue-700 text-xs font-medium rounded-lg hover:bg-blue-50 transition-colors"
+                            >
+                                Yes, keep it formal
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setInput("No, make it casual")
+                                    setClarifyingQuestion(null)
+                                }}
+                                className="px-3 py-1.5 bg-white border border-blue-200 text-blue-700 text-xs font-medium rounded-lg hover:bg-blue-50 transition-colors"
+                            >
+                                No, make it casual
+                            </button>
                         </div>
                     </div>
                 )}
 
-                {/* Loading Indicator */}
-                {isLoading && (
-                    <div className="flex gap-2.5 text-[13px]">
-                        <div className="bg-gray-100 px-3.5 py-2.5 rounded-xl rounded-tl-none border-l-2 border-[#6C2BD9]">
-                            <div className="flex gap-1">
-                                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" />
-                                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:0.2s]" />
-                                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce [animation-delay:0.4s]" />
-                            </div>
-                        </div>
-                    </div>
-                )}
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* Empty Suggestion Strip Container - 40px height */}
-            <div
-                className="suggestion-strip-empty h-10 border-t border-gray-100 bg-white"
-                aria-hidden="true"
-                tabIndex={-1}
-            />
-
-            {/* Composer Bar - Sticky to bottom */}
-            <div className="p-4 border-t border-gray-100 bg-gray-50/50 flex-shrink-0">
-                <form onSubmit={handleSubmit} className="relative flex items-center gap-2 mb-2">
-                    {/* Upload Button */}
-                    <button
-                        type="button"
-                        onClick={() => setShowUploadModal(true)}
-                        className="p-1.5 rounded-lg hover:bg-gray-200 transition-colors text-gray-600 flex-shrink-0"
-                        title="Upload file (U)"
-                        aria-label="Upload file"
-                    >
-                        <Plus className="w-4 h-4" />
-                    </button>
-
-                    {/* Input Box */}
-                    <input
-                        ref={inputRef}
-                        type="text"
-                        value={input}
-                        disabled={isPrivacyMode}
-                        onChange={(e) => {
-                            setInput(e.target.value)
-                            // Hide recommendations when user starts typing
-                            if (e.target.value.trim() && showRecommendations && messages.length === 0) {
-                                setShowRecommendations(false)
-                            }
-                        }}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
-                                e.preventDefault()
-                                if (input.trim() && !isLoading) {
-                                    handleSubmit(e as any)
-                                }
-                            }
-                        }}
-                        placeholder={isPrivacyMode ? "Privacy Mode Enabled - AI Chat Disabled" : "Message Copilot or @ mention a tab"}
-                        className={cn(
-                            "flex-1 pl-3.5 pr-20 py-2.5 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#6C2BD9]/20 focus:border-[#6C2BD9] transition-all text-[13px]",
-                            isPrivacyMode && "bg-gray-50 text-gray-400 cursor-not-allowed"
-                        )}
-                        aria-label="Chat input"
-                    />
-
-                    {/* Send Button */}
-                    <button
-                        type="submit"
-                        disabled={!input.trim() || isLoading || isPrivacyMode}
-                        className="absolute right-12 p-1.5 text-gray-400 hover:text-[#6C2BD9] disabled:opacity-50 disabled:hover:text-gray-400 transition-colors"
-                        title="Send (Ctrl/Cmd + Enter)"
-                        aria-label="Send message"
-                    >
-                        <Send className="w-4 h-4" />
-                    </button>
-
-                    {/* Mic Button */}
-                    <button
-                        type="button"
-                        onMouseDown={() => {
-                            if (isVoiceAvailable) {
-                                setIsRecording(true)
-                            }
-                        }}
-                        onMouseUp={() => setIsRecording(false)}
-                        onMouseLeave={() => setIsRecording(false)}
-                        disabled={!isVoiceAvailable}
-                        className={cn(
-                            "absolute right-2 p-1.5 rounded-lg transition-colors",
-                            isRecording ? "bg-red-500 text-white" : "text-gray-400 hover:text-gray-600",
-                            !isVoiceAvailable && "opacity-50 cursor-not-allowed"
-                        )}
-                        title={isVoiceAvailable ? (isRecording ? "Recording..." : "Hold to talk") : "Enable microphone in Settings"}
-                        aria-label="Voice record"
-                    >
-                        <Mic className="w-4 h-4" />
-                    </button>
-                </form>
-
-                {/* Model and Tone Pills - Below Composer */}
-                <div className="flex items-center gap-2">
-                    {/* Model Pill */}
-                    <div className="relative" ref={modelSelectorRef}>
+            {/* Input Area */}
+            <div className="p-4 bg-white border-t border-gray-100">
+                {/* Toolbar */}
+                <div className="flex items-center gap-2 mb-2">
+                    <div className="relative">
                         <button
-                            type="button"
-                            onClick={() => {
-                                setShowModelSelector(!showModelSelector)
-                                setShowToneSelector(false)
-                            }}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-[12px] font-medium text-gray-700 transition-colors"
-                            title="Select model (M)"
+                            onClick={() => setShowModelSelector(!showModelSelector)}
+                            className="flex items-center gap-1.5 px-2 py-1 hover:bg-gray-100 rounded-lg text-xs font-medium text-gray-600 transition-colors"
                         >
-                            <Sparkles className="w-3.5 h-3.5 text-[#6C2BD9]" />
-                            <span>{selectedModel}</span>
-                            <ChevronDown className="w-3 h-3" />
+                            <Sparkles className="w-3 h-3 text-[#6C2BD9]" />
+                            {selectedModel}
+                            <ChevronDown className="w-3 h-3 opacity-50" />
                         </button>
                         {showModelSelector && (
-                            <div className="absolute bottom-full left-0 mb-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg p-1 z-50">
-                                {['GPT-4', 'GPT-3.5', 'Claude', 'Gemini'].map(model => (
+                            <div className="absolute bottom-full left-0 mb-2 w-32 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10">
+                                {['GPT-4', 'Claude 3', 'Trinka Pro'].map(model => (
                                     <button
                                         key={model}
-                                        type="button"
                                         onClick={() => {
                                             setSelectedModel(model)
                                             setShowModelSelector(false)
                                         }}
-                                        className={cn(
-                                            "w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 rounded",
-                                            selectedModel === model && "bg-[#6C2BD9]/10 text-[#6C2BD9]"
-                                        )}
+                                        className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
                                     >
                                         {model}
                                     </button>
@@ -765,38 +409,27 @@ const Copilot = ({
                         )}
                     </div>
 
-                    {/* Tone Pill */}
-                    <div className="relative" ref={toneSelectorRef}>
+                    <div className="h-3 w-px bg-gray-200" />
+
+                    <div className="relative">
                         <button
-                            type="button"
-                            onClick={() => {
-                                setShowToneSelector(!showToneSelector)
-                                setShowModelSelector(false)
-                            }}
-                            className={cn(
-                                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-[12px] font-medium text-gray-700 transition-all",
-                                selectedTone !== 'Standard' && "animate-pulse"
-                            )}
-                            title="Select tone (M)"
+                            onClick={() => setShowToneSelector(!showToneSelector)}
+                            className="flex items-center gap-1.5 px-2 py-1 hover:bg-gray-100 rounded-lg text-xs font-medium text-gray-600 transition-colors"
                         >
-                            <Type className="w-3.5 h-3.5 text-[#6C2BD9]" />
-                            <span>{selectedTone}</span>
-                            <ChevronDown className="w-3 h-3" />
+                            <Type className="w-3 h-3 text-gray-500" />
+                            {selectedTone}
+                            <ChevronDown className="w-3 h-3 opacity-50" />
                         </button>
                         {showToneSelector && (
-                            <div className="absolute bottom-full left-0 mb-2 w-40 bg-white border border-gray-200 rounded-lg shadow-lg p-1 z-50">
-                                {['Standard', 'Academic', 'Formal', 'Concise', 'Simple'].map(tone => (
+                            <div className="absolute bottom-full left-0 mb-2 w-32 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10">
+                                {['Standard', 'Academic', 'Creative', 'Professional'].map(tone => (
                                     <button
                                         key={tone}
-                                        type="button"
                                         onClick={() => {
                                             setSelectedTone(tone)
                                             setShowToneSelector(false)
                                         }}
-                                        className={cn(
-                                            "w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 rounded",
-                                            selectedTone === tone && "bg-[#6C2BD9]/10 text-[#6C2BD9]"
-                                        )}
+                                        className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
                                     >
                                         {tone}
                                     </button>
@@ -805,67 +438,74 @@ const Copilot = ({
                         )}
                     </div>
                 </div>
-            </div>
 
-            {/* Upload Modal */}
-            {showUploadModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowUploadModal(false)}>
-                    <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-semibold text-gray-800">Upload Files</h3>
-                            <button
-                                onClick={() => setShowUploadModal(false)}
-                                className="p-1 hover:bg-gray-100 rounded transition-colors"
-                            >
-                                <X className="w-5 h-5" />
-                            </button>
-                        </div>
-                        <div
-                            className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-[#6C2BD9] transition-colors cursor-pointer"
-                            onDrop={(e) => {
-                                e.preventDefault()
-                                handleFileUpload(e.dataTransfer.files)
-                            }}
-                            onDragOver={(e) => e.preventDefault()}
-                        >
-                            <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                            <p className="text-gray-600 mb-2">Drag and drop files here</p>
-                            <p className="text-sm text-gray-400 mb-4">or</p>
-                            <label className="inline-block px-4 py-2 bg-[#6C2BD9] text-white rounded-lg cursor-pointer hover:bg-[#6C2BD9]/90 transition-colors">
-                                Browse Files
-                                <input
-                                    type="file"
-                                    multiple
-                                    accept=".jpg,.jpeg,.png,.pdf,.docx,.pptx"
-                                    className="hidden"
-                                    onChange={(e) => handleFileUpload(e.target.files)}
-                                />
-                            </label>
-                            <p className="text-xs text-gray-400 mt-2">Supports: JPG, PNG, PDF, DOCX, PPTX</p>
-                        </div>
-                        {uploadedFiles.length > 0 && (
-                            <div className="mt-4 space-y-2">
-                                <p className="text-sm font-medium text-gray-700">Uploaded Files:</p>
-                                {uploadedFiles.map((file, idx) => (
-                                    <div key={idx} className="flex items-center justify-between p-2 border border-gray-200 rounded-lg">
-                                        <div className="flex items-center gap-2">
-                                            <FileText className="w-4 h-4 text-gray-400" />
-                                            <span className="text-sm text-gray-700">{file.name}</span>
-                                            <span className="text-xs text-gray-400">({(file.size / 1024).toFixed(1)} KB)</span>
-                                        </div>
-                                        <button
-                                            onClick={() => setUploadedFiles(prev => prev.filter((_, i) => i !== idx))}
-                                            className="p-1 hover:bg-gray-100 rounded transition-colors"
-                                        >
-                                            <X className="w-4 h-4 text-gray-400" />
-                                        </button>
-                                    </div>
-                                ))}
+                {/* File Upload Preview */}
+                {uploadedFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-2">
+                        {uploadedFiles.map((file, i) => (
+                            <div key={i} className="flex items-center gap-1.5 bg-gray-100 px-2 py-1 rounded-md text-xs text-gray-700">
+                                <FileText className="w-3 h-3 text-gray-500" />
+                                <span className="max-w-[100px] truncate">{file.name}</span>
+                                <button
+                                    onClick={() => setUploadedFiles(prev => prev.filter((_, idx) => idx !== i))}
+                                    className="hover:text-red-500"
+                                >
+                                    <X className="w-3 h-3" />
+                                </button>
                             </div>
-                        )}
+                        ))}
                     </div>
+                )}
+
+                <div className="relative flex items-end gap-2 bg-gray-50 border border-gray-200 rounded-xl p-2 focus-within:ring-2 focus-within:ring-[#6C2BD9]/20 focus-within:border-[#6C2BD9] transition-all">
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-200/50 rounded-lg transition-colors"
+                        title="Attach file"
+                    >
+                        <Upload className="w-5 h-5" />
+                    </button>
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        className="hidden"
+                        multiple
+                        onChange={(e) => handleFileUpload(e.target.files)}
+                    />
+
+                    <textarea
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault()
+                                handleSend()
+                            }
+                        }}
+                        placeholder="Ask Trinka to write, edit, or explain..."
+                        className="flex-1 bg-transparent border-none focus:ring-0 resize-none max-h-32 py-2 text-sm text-gray-800 placeholder:text-gray-400"
+                        rows={1}
+                        style={{ minHeight: '40px' }}
+                    />
+
+                    {input.trim() || uploadedFiles.length > 0 ? (
+                        <button
+                            onClick={handleSend}
+                            disabled={isLoading}
+                            className="p-2 bg-[#6C2BD9] hover:bg-[#5a37e6] text-white rounded-lg shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <Send className="w-4 h-4" />
+                        </button>
+                    ) : (
+                        <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-200/50 rounded-lg transition-colors">
+                            <Mic className="w-5 h-5" />
+                        </button>
+                    )}
                 </div>
-            )}
+                <div className="text-center mt-2">
+                    <p className="text-[10px] text-gray-400">AI can make mistakes. Please review generated content.</p>
+                </div>
+            </div>
         </div>
     )
 }

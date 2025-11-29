@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { X, RotateCw, ChevronLeft, ChevronRight, Check, ThumbsDown } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { X, RotateCw, ChevronLeft, ChevronRight, Check, ThumbsDown, MoreHorizontal, Book, Ban } from 'lucide-react'
 import type { Recommendation } from './RecommendationCard'
 import { getTrinkaApi, cn } from '../lib/utils'
 
@@ -7,9 +7,11 @@ interface RecommendationDetailPopoverProps {
     recommendation: Recommendation
     docId: string
     onClose: () => void
-    onApply?: (recommendationId: string) => void
+    onApply?: (recommendationId: string, text: string) => void
     onDismiss?: (recommendationId: string) => void
     onShowToast?: (message: string) => void
+    onAddToDictionary?: (text: string) => void
+    onIgnore?: (text: string) => void
 }
 
 type SuggestionVersion = {
@@ -24,11 +26,26 @@ const RecommendationDetailPopover = ({
     onClose,
     onApply,
     onDismiss,
-    onShowToast
+    onShowToast,
+    onAddToDictionary,
+    onIgnore
 }: RecommendationDetailPopoverProps) => {
     const [isApplying, setIsApplying] = useState(false)
     const [isRegenerating, setIsRegenerating] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [showMoreMenu, setShowMoreMenu] = useState(false)
+    const moreMenuRef = useRef<HTMLDivElement>(null)
+
+    // Close menu on outside click
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
+                setShowMoreMenu(false)
+            }
+        }
+        document.addEventListener('mousedown', handleClickOutside)
+        return () => document.removeEventListener('mousedown', handleClickOutside)
+    }, [])
 
     // Version history state
     const [suggestionHistory, setSuggestionHistory] = useState<SuggestionVersion[]>([])
@@ -59,7 +76,7 @@ const RecommendationDetailPopover = ({
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        text: recommendation.originalText,
+                        text: recommendation.originalText || '',
                         mode: recommendation.actionType,
                         tone: 'academic' // Default to academic for now
                     })
@@ -84,7 +101,8 @@ const RecommendationDetailPopover = ({
                 }
                 const type = recommendation.actionType as string
                 const options = mocks[type] || mocks['rewrite']
-                text = options[Math.floor(Math.random() * options.length)] + ` "${(recommendation.originalText || '').substring(0, 20)}..."`
+                const original = recommendation.originalText || ''
+                text = options[Math.floor(Math.random() * options.length)] + ` "${original.substring(0, 20)}..."`
             }
 
             if (!text) throw new Error('Generation failed')
@@ -134,20 +152,7 @@ const RecommendationDetailPopover = ({
 
             // Call parent handler
             if (onApply) {
-                // Pass the text to apply
-                // We might need to update the signature of onApply in the parent to accept text
-                // For now, we assume the parent handles it or we use a global store?
-                // The task says "Implement applySuggestion(text)". 
-                // I'll assume onApply can take the text or ID. 
-                // If the parent expects ID, we might need to update the parent.
-                // But wait, the parent (Editor.tsx) defines onApply. 
-                // I should check Editor.tsx again. 
-                // In Editor.tsx: onApply={() => { ... editor.chain().insertContent(suggestion) ... }}
-                // It uses the `suggestion` from the closure scope! 
-                // That's a problem if we generate new text here.
-                // I need to pass the text back to onApply.
-                // I will update the interface to allow passing text.
-                (onApply as any)(currentSuggestion.text)
+                onApply(recommendation.id, currentSuggestion.text)
             }
             onClose()
         } catch (error) {
@@ -187,14 +192,14 @@ const RecommendationDetailPopover = ({
 
     return (
         <div
-            className="w-[400px] bg-white rounded-xl shadow-2xl border border-gray-200/60 ring-1 ring-black/5 overflow-hidden font-sans animate-in fade-in zoom-in-95 duration-200 flex flex-col"
+            className="w-[480px] bg-white rounded-xl shadow-2xl border border-gray-200/60 ring-1 ring-black/5 overflow-hidden font-sans animate-in fade-in zoom-in-95 duration-200 flex flex-col"
             role="dialog"
             aria-labelledby="rec-title"
         >
             {/* Header */}
             <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 bg-gray-50/50">
                 <div className="flex items-center gap-2">
-                    <span className={cn("text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full", actionColor)}>
+                    <span className={cn("text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full flex-shrink-0", actionColor)}>
                         {recommendation.title || recommendation.actionType}
                     </span>
                     {isRegenerating && (
@@ -224,7 +229,7 @@ const RecommendationDetailPopover = ({
             </div>
 
             {/* Content */}
-            <div className="p-4 min-h-[80px] max-h-[300px] overflow-y-auto">
+            <div className="p-3 min-h-[80px] max-h-[300px] overflow-y-auto">
                 {error ? (
                     <div className="text-red-500 text-sm flex items-center gap-2">
                         <ThumbsDown size={14} />
@@ -268,12 +273,6 @@ const RecommendationDetailPopover = ({
 
                 <div className="flex items-center gap-2">
                     <button
-                        onClick={handleIgnore}
-                        className="px-3 py-1.5 text-[12px] font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                    >
-                        Dismiss
-                    </button>
-                    <button
                         onClick={handleApply}
                         disabled={isApplying || !currentSuggestion.text}
                         className="px-3 py-1.5 bg-[#6C2BD9] hover:bg-[#5a37e6] text-white text-[12px] font-medium rounded-lg transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -285,6 +284,55 @@ const RecommendationDetailPopover = ({
                             </>
                         )}
                     </button>
+
+                    <button
+                        onClick={handleIgnore}
+                        className="px-3 py-1.5 text-[12px] font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                    >
+                        Dismiss
+                    </button>
+
+                    {/* More Actions */}
+                    <div className="relative" ref={moreMenuRef}>
+                        <button
+                            onClick={() => setShowMoreMenu(!showMoreMenu)}
+                            className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                            title="More actions"
+                        >
+                            <MoreHorizontal size={16} />
+                        </button>
+
+                        {showMoreMenu && (
+                            <div className="absolute bottom-full right-0 mb-2 w-48 bg-white rounded-lg shadow-xl border border-gray-200 py-1 z-50 animate-in fade-in zoom-in-95 duration-100">
+                                <button
+                                    onClick={() => {
+                                        if (onAddToDictionary && recommendation.originalText) {
+                                            onAddToDictionary(recommendation.originalText)
+                                            setShowMoreMenu(false)
+                                            onClose()
+                                        }
+                                    }}
+                                    className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                                >
+                                    <Book size={14} className="text-gray-400" />
+                                    Add to Dictionary
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        if (onIgnore && recommendation.originalText) {
+                                            onIgnore(recommendation.originalText)
+                                            setShowMoreMenu(false)
+                                            onClose()
+                                        }
+                                    }}
+                                    className="w-full text-left px-3 py-2 text-[12px] text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                                >
+                                    <Ban size={14} className="text-gray-400" />
+                                    Ignore Always
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>

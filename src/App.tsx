@@ -1,11 +1,10 @@
-import { useState, useEffect } from 'react'
-import Editor from './components/Editor'
+import { useState, useEffect, useRef } from 'react'
+import Editor, { type EditorRef } from './components/Editor'
 import Copilot from './components/Copilot'
-import { RotateCcw, Eye, Copy, X, User as UserIcon, Menu } from 'lucide-react'
-import { cn } from './lib/utils'
+import { Menu, History, RotateCcw, Eye, X, User as UserIcon, Settings, MessageSquare, HelpCircle, Copy } from 'lucide-react'
+import { cn, trinkaApi } from './lib/utils'
 import ScorePill from './components/ScorePill'
 import CopilotFab from './components/CopilotFab'
-
 
 function App() {
   const [isCopilotCompact, setIsCopilotCompact] = useState(false)
@@ -13,15 +12,29 @@ function App() {
   const [hasSelection] = useState(false)
 
   const [showVersionHistory, setShowVersionHistory] = useState(false)
-  const [versionHistory] = useState<unknown[]>([])
+  const [versionHistory, setVersionHistory] = useState<unknown[]>([])
   const [showChat, setShowChat] = useState(false)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
+
+  // State from HEAD
   const [isPrivacyMode] = useState(false)
+  const [showHealthSidebar, setShowHealthSidebar] = useState(false)
+  const [copilotQuery, setCopilotQuery] = useState('')
+
+  // State from ux-fixes
+  const [copilotInitialMessage, setCopilotInitialMessage] = useState<string | null>(null)
   const [documentTitle, setDocumentTitle] = useState(() => {
     return localStorage.getItem('trinka-document-title') || 'Untitled document'
   })
-  const [showHealthSidebar, setShowHealthSidebar] = useState(false)
-  const [copilotQuery, setCopilotQuery] = useState('')
+
+  const menuRef = useRef<HTMLDivElement>(null)
+  const userMenuRef = useRef<HTMLDivElement>(null)
+  const profileMenuRef = useRef<HTMLDivElement>(null)
+  const editorRef = useRef<EditorRef>(null)
+
+  const handleInsertText = (text: string) => {
+    editorRef.current?.insertContent(text)
+  }
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -37,13 +50,45 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  // ... (refs)
+  const MOCK_VERSION_HISTORY = [
+    {
+      id: 'v1',
+      timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(), // 5 mins ago
+      action: 'AI Rewrite',
+      summary: 'Rewrote introduction for clarity',
+      word_count: 450,
+      author: 'Trinka AI'
+    },
+    {
+      id: 'v2',
+      timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(), // 30 mins ago
+      action: 'Manual Edit',
+      summary: 'Updated methodology section',
+      word_count: 420,
+      author: 'You'
+    },
+    {
+      id: 'v3',
+      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), // 2 hours ago
+      action: 'Paste',
+      summary: 'Pasted content from source',
+      word_count: 380,
+      author: 'You'
+    }
+  ]
 
-  // ... (effects)
-
-  // ... (fetchVersionHistory)
-
-  // ... (handleRestoreVersion)
+  const fetchVersionHistory = async () => {
+    try {
+      // @ts-ignore
+      const response = await fetch(trinkaApi('/versions?limit=5'))
+      if (!response.ok) throw new Error('API unavailable')
+      const data = await response.json()
+      setVersionHistory(data.snapshots || [])
+    } catch (error) {
+      console.log('Using mock version history')
+      setVersionHistory(MOCK_VERSION_HISTORY)
+    }
+  }
 
   const handleRestoreVersion = (id: string) => {
     console.log('Restore version:', id)
@@ -131,12 +176,19 @@ function App() {
           )}>
             <div className={cn("transition-all duration-300", showChat ? "w-full" : "w-full max-w-5xl")}>
               <Editor
+                ref={editorRef}
                 showChat={showChat}
                 setShowChat={setShowChat}
                 isPrivacyMode={isPrivacyMode}
                 showHealthSidebar={showHealthSidebar}
                 setShowHealthSidebar={setShowHealthSidebar}
                 setCopilotQuery={setCopilotQuery}
+                onTriggerCopilot={(message?: string) => {
+                  setShowChat(true)
+                  if (message) {
+                    setCopilotInitialMessage(message)
+                  }
+                }}
               />
             </div>
           </div>
@@ -153,7 +205,14 @@ function App() {
                 hasSelection={hasSelection}
                 isPrivacyMode={isPrivacyMode}
                 onClose={() => setShowChat(false)}
-                initialQuery={copilotQuery}
+                docId="current-doc"
+                defaultShowRecommendations={true}
+                initialMessage={copilotInitialMessage || copilotQuery}
+                onMessageHandled={() => {
+                  setCopilotInitialMessage(null)
+                  setCopilotQuery('')
+                }}
+                onInsertText={handleInsertText}
               />
             </aside>
           )}
@@ -196,43 +255,62 @@ function App() {
       }
 
       {/* Version History Modal */}
-      {
-        showVersionHistory && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowVersionHistory(false)}>
-            <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-800">Version History</h3>
-                <button
-                  onClick={() => setShowVersionHistory(false)}
-                  className="p-1 hover:bg-gray-100 rounded transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="space-y-2">
-                {versionHistory.length === 0 ? (
-                  <p className="text-sm text-gray-400 text-center py-8">No versions yet</p>
-                ) : (
-                  versionHistory.map((snapshot: any) => {
-                    const snapshotSize = snapshot.delta ? (JSON.parse(snapshot.delta).text?.split(/\s+/).length || 0) : 0
-                    return (
-                      <div key={snapshot.id} className="p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
+      {showVersionHistory && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowVersionHistory(false)}>
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-800">Version History</h3>
+              <button
+                onClick={() => setShowVersionHistory(false)}
+                className="p-1 hover:bg-gray-100 rounded transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              {versionHistory.length === 0 ? (
+                <div className="text-center py-12">
+                  <History className="w-12 h-12 text-gray-200 mx-auto mb-3" />
+                  <p className="text-gray-500 font-medium">No version history available</p>
+                  <p className="text-sm text-gray-400 mt-1">Edits will appear here automatically</p>
+                </div>
+              ) : (
+                <div className="relative pl-4 border-l border-gray-200 space-y-8">
+                  {versionHistory.map((snapshot: any, index) => (
+                    <div key={snapshot.id} className="relative">
+                      {/* Timeline Dot */}
+                      <div className={cn(
+                        "absolute -left-[21px] top-1 w-3 h-3 rounded-full border-2 border-white shadow-sm",
+                        index === 0 ? "bg-[#6C2BD9]" : "bg-gray-300"
+                      )} />
+
+                      <div className="bg-gray-50 rounded-xl p-4 hover:bg-gray-100 transition-colors border border-gray-100 group">
                         <div className="flex items-start justify-between mb-2">
-                          <div className="flex-1">
-                            <p className="text-sm font-medium text-gray-800">{snapshot.summary || snapshot.action}</p>
-                            <p className="text-xs text-gray-500 mt-1">
-                              {new Date(snapshot.timestamp).toLocaleString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
-                            </p>
-                            <div className="flex items-center gap-4 mt-1">
-                              <span className="text-xs text-gray-500">{snapshot.word_count} words</span>
-                              {snapshotSize > 0 && (
-                                <span className="text-xs text-gray-500">Snapshot: {snapshotSize} words</span>
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-semibold text-gray-900 text-sm">
+                                {snapshot.summary || snapshot.action}
+                              </span>
+                              {index === 0 && (
+                                <span className="px-2 py-0.5 bg-[#6C2BD9]/10 text-[#6C2BD9] text-[10px] font-bold uppercase tracking-wider rounded-full">
+                                  Current
+                                </span>
                               )}
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-gray-500">
+                              <span className="flex items-center gap-1">
+                                <UserIcon className="w-3 h-3" />
+                                {snapshot.author || 'Trinka AI'}
+                              </span>
+                              <span>•</span>
+                              <span>
+                                {new Date(snapshot.timestamp).toLocaleString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </span>
                             </div>
                           </div>
                         </div>
@@ -258,17 +336,16 @@ function App() {
                           </button>
                         </div>
                       </div>
-                    )
-                  })
-                )}
-              </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
-        )
-      }
-    </div >
+        </div>
+      )}
+    </div>
   )
 }
-
 
 export default App

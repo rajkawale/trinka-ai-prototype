@@ -192,8 +192,9 @@ const SuggestionsModal = ({
                     {filteredSuggestions.map((suggestion, index) => (
                         <div
                             key={suggestion.id}
+                            onClick={() => setSelectedIndex(index)}
                             className={cn(
-                                "p-3 rounded-lg border transition-colors",
+                                "p-3 rounded-lg border transition-colors cursor-pointer",
                                 selectedIndex === index
                                     ? "border-[#6C2BD9] bg-[#6C2BD9]/5"
                                     : "border-gray-200 hover:border-gray-300"

@@ -1,5 +1,5 @@
-﻿import React, { useEffect, useState, useCallback, useRef } from 'react'
-import { useEditor, EditorContent } from '@tiptap/react'
+import React, { useEffect, useState, useCallback, useRef, forwardRef, useImperativeHandle, type ForwardedRef } from 'react'
+import { useEditor, EditorContent, BubbleMenu } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import BubbleMenuExtension from '@tiptap/extension-bubble-menu'
 import { GrammarToneExtension } from '../extensions/GrammarToneExtension'
@@ -23,12 +23,28 @@ import { WritingScorePill } from '../editor/components/WritingScorePill'
 import type { QualitySignal } from '../editor/types'
 import ImprovementSuggestionsModal from './ImprovementSuggestionsModal'
 import { SuggestionPopup } from '../editor/components/SuggestionPopup'
+import { useClickOutside } from '../hooks/useClickOutside'
 import {
     X,
     History,
     Undo2,
     Upload,
-    FileText
+    FileText,
+    Bold,
+    Italic,
+    List,
+    ListOrdered,
+    Check,
+    Sparkles,
+    AlignLeft,
+    AlignCenter,
+    AlignRight,
+    AlignJustify,
+    Sigma,
+    Target,
+    BookMarked,
+    AlertTriangle,
+    Loader2
 } from 'lucide-react'
 
 type VersionSnapshot = {
@@ -38,6 +54,10 @@ type VersionSnapshot = {
     delta: string
 }
 
+export interface EditorRef {
+    insertContent: (text: string) => void
+}
+
 interface EditorProps {
     showChat: boolean
     setShowChat: (show: boolean) => void
@@ -45,16 +65,20 @@ interface EditorProps {
     showHealthSidebar: boolean
     setShowHealthSidebar: (show: boolean) => void
     setCopilotQuery: (query: string) => void
+    onTriggerCopilot?: (initialMessage?: string) => void
 }
 
-const Editor: React.FC<EditorProps> = ({
-    showChat,
-    setShowChat,
-    isPrivacyMode: _isPrivacyMode,
-    showHealthSidebar,
-    setShowHealthSidebar,
-    setCopilotQuery
-}) => {
+const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => {
+    const {
+        showChat,
+        setShowChat,
+        isPrivacyMode: _isPrivacyMode,
+        showHealthSidebar,
+        setShowHealthSidebar,
+        setCopilotQuery,
+        onTriggerCopilot
+    } = props
+
     const docId = 'current-doc'
     const [qualitySignals, setQualitySignals] = useState<QualitySignal[]>([
         { label: 'Tone', value: 'Stable', status: 'success' },
@@ -77,6 +101,13 @@ const Editor: React.FC<EditorProps> = ({
     const [selectedFactorForImprovement, setSelectedFactorForImprovement] = useState<string | null>(null)
     const [writingScore, setWritingScore] = useState(100)
     const [grammarToneIssues, setGrammarToneIssues] = useState<GrammarToneIssue[]>([])
+
+    // State from ux-fixes
+    const [dictionary, setDictionary] = useState<Set<string>>(() => {
+        const saved = localStorage.getItem('trinka-dictionary')
+        return saved ? new Set(JSON.parse(saved)) : new Set()
+    })
+    const [ignoredWords, setIgnoredWords] = useState<Set<string>>(new Set())
 
     const showToast = useCallback((message: string, undo?: () => void) => {
         setToast({ message, undo })
@@ -152,6 +183,14 @@ const Editor: React.FC<EditorProps> = ({
         showToast,
         createRequestId
     })
+
+    useImperativeHandle(ref, () => ({
+        insertContent: (text: string) => {
+            if (editor) {
+                editor.chain().focus().insertContent(text).run()
+            }
+        }
+    }))
 
     // Handle selection changes to trigger popup
     useEffect(() => {
@@ -708,6 +747,6 @@ const Editor: React.FC<EditorProps> = ({
             />
         </div >
     )
-}
+})
 
 export default Editor
