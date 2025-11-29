@@ -16,20 +16,20 @@ function App() {
   const [showVersionHistory, setShowVersionHistory] = useState(false)
   // Mock version history for display
   const [versionHistory] = useState<unknown[]>([])
-  
+
   // Unified panel state management
   const panelState = usePanelState()
   const showChat = panelState.isOpen('sidebar')
   const showProfileMenu = panelState.isOpen('profile')
   const showQualityPanel = panelState.isOpen('score')
   const showGoalsModal = panelState.isOpen('goals')
-  
+
   // Store panelState functions in refs to avoid recreating callbacks
+  // The object reference changes on every render, but we use a ref to access the latest without causing re-renders
   const panelStateRef = useRef(panelState)
-  useEffect(() => {
-    panelStateRef.current = panelState
-  }, [panelState])
-  
+  // Update ref on every render (this doesn't cause re-renders since refs don't trigger effects)
+  panelStateRef.current = panelState
+
   const scorePillRef = useRef<HTMLButtonElement>(null)
   const profileButtonRef = useRef<HTMLButtonElement>(null)
 
@@ -47,9 +47,79 @@ function App() {
 
   const editorRef = useRef<EditorRef>(null)
 
-  const handleInsertText = (text: string) => {
+  const handleInsertText = useCallback((text: string) => {
     editorRef.current?.insertContent(text)
-  }
+  }, [])
+
+  // Stable callbacks for Editor - defined at component level to prevent recreation
+  const handleMetricsChange = useCallback((wc: number, rt: string) => {
+    console.log('[App] onMetricsChange called', { wordCount: wc, readTime: rt })
+
+    // Batch both updates together in a single startTransition
+    // This prevents multiple re-renders and cascading effects
+    startTransition(() => {
+      // Use functional updates to check and update in one go
+      setWordCount(prev => prev === wc ? prev : wc)
+      setReadTime(prev => prev === rt ? prev : rt)
+    })
+  }, [])
+
+  const handleSuggestionPopupChange = useCallback((isOpen: boolean) => {
+    console.log('[App] onSuggestionPopupChange called', { isOpen })
+    const currentPanelState = panelStateRef.current
+    if (isOpen) {
+      // Close other panels when suggestion popup opens
+      currentPanelState.closeAllPanelsExcept('suggestion')
+      currentPanelState.openPanel('suggestion')
+    } else {
+      currentPanelState.closePanel('suggestion')
+    }
+  }, [])
+
+  // Stable callback for Editor setShowChat - defined at component level
+  const handleSetShowChat = useCallback((show: boolean) => {
+    if (show) {
+      panelStateRef.current.closeAllPanelsExcept('sidebar')
+      panelStateRef.current.openPanel('sidebar')
+    } else {
+      panelStateRef.current.closePanel('sidebar')
+    }
+  }, [])
+
+  // Stable callbacks for Copilot - defined at component level
+  const handleCopilotClose = useCallback(() => {
+    panelStateRef.current.closePanel('sidebar')
+  }, [])
+
+  const handleProfileClose = useCallback(() => {
+    panelStateRef.current.closePanel('profile')
+  }, [])
+
+  const handleProfileOpenGoals = useCallback(() => {
+    panelStateRef.current.closePanel('profile')
+    panelStateRef.current.openPanel('goals')
+  }, [])
+
+  const handleQualityPanelClose = useCallback(() => {
+    panelStateRef.current.closePanel('score')
+  }, [])
+
+  const handleOpenScoreSubPopup = useCallback(() => {
+    panelStateRef.current.openScoreSubPopup()
+  }, [])
+
+  const handleCloseScoreSubPopup = useCallback(() => {
+    panelStateRef.current.closeScoreSubPopup()
+  }, [])
+
+  const handleGoalsClose = useCallback(() => {
+    panelStateRef.current.closePanel('goals')
+  }, [])
+
+  const handleGoalsSave = useCallback((goals: any) => {
+    console.log('Goals saved:', goals)
+    panelStateRef.current.closePanel('goals')
+  }, [])
 
   // Debounced click handlers to prevent double-click issues
   const handleScoreClick = useDebounceClick(() => {
@@ -97,12 +167,12 @@ function App() {
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        panelState.closeAllPanels()
+        panelStateRef.current.closeAllPanels()
       }
     }
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
-  }, [panelState])
+  }, []) // Empty deps - we use ref to access current panelState
 
   const handleRestoreVersion = (id: string) => {
     console.log('Restore version:', id)
@@ -119,7 +189,7 @@ function App() {
           <div className="flex items-center gap-3" style={{ gap: '12px' }}>
             {/* Menu & Logo */}
             <div className="flex items-center gap-4">
-              <button 
+              <button
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600 focus:outline-none focus:ring-0 focus-visible:outline-none active:outline-none active:ring-0"
                 onMouseDown={(e) => {
                   // Prevent default focus behavior on mousedown
@@ -214,16 +284,13 @@ function App() {
               >
                 <UserIcon className="w-4 h-4 text-gray-600" />
               </button>
-              
+
               {/* Profile Menu Dropdown */}
               <ProfileMenu
                 isOpen={showProfileMenu}
-                onClose={() => panelState.closePanel('profile')}
+                onClose={handleProfileClose}
                 anchorElement={profileButtonRef.current}
-                onOpenWritingGoals={() => {
-                  panelState.closePanel('profile')
-                  panelState.openPanel('goals')
-                }}
+                onOpenWritingGoals={handleProfileOpenGoals}
               />
             </div>
           </div>
@@ -242,38 +309,11 @@ function App() {
             )}>
               <Editor
                 ref={editorRef}
-                setShowChat={(show) => {
-                  if (show) {
-                    panelState.closeAllPanelsExcept('sidebar')
-                    panelState.openPanel('sidebar')
-                  } else {
-                    panelState.closePanel('sidebar')
-                  }
-                }}
+                setShowChat={handleSetShowChat}
                 setShowHealthSidebar={setShowHealthSidebar}
                 setCopilotQuery={setCopilotQuery}
-                onMetricsChange={useCallback((wc: number, rt: string) => {
-                  console.log('[App] onMetricsChange called', { wordCount: wc, readTime: rt })
-                  
-                  // Batch both updates together in a single startTransition
-                  // This prevents multiple re-renders and cascading effects
-                  startTransition(() => {
-                    // Use functional updates to check and update in one go
-                    setWordCount(prev => prev === wc ? prev : wc)
-                    setReadTime(prev => prev === rt ? prev : rt)
-                  })
-                }, [])}
-                onSuggestionPopupChange={useCallback((isOpen: boolean) => {
-                  console.log('[App] onSuggestionPopupChange called', { isOpen })
-                  const currentPanelState = panelStateRef.current
-                  if (isOpen) {
-                    // Close other panels when suggestion popup opens
-                    currentPanelState.closeAllPanelsExcept('suggestion')
-                    currentPanelState.openPanel('suggestion')
-                  } else {
-                    currentPanelState.closePanel('suggestion')
-                  }
-                }, [])}
+                onMetricsChange={handleMetricsChange}
+                onSuggestionPopupChange={handleSuggestionPopupChange}
               />
             </div>
           </div>
@@ -282,14 +322,14 @@ function App() {
           {!isMobile && (
             <aside className={cn(
               "flex-shrink-0 border-l border-gray-200 bg-white flex flex-col overflow-hidden transition-all duration-300 ease-out",
-              showChat 
-                ? "w-[400px] opacity-100" 
+              showChat
+                ? "w-[400px] opacity-100"
                 : "w-0 opacity-0 pointer-events-none overflow-hidden"
             )}>
               <Copilot
                 isCompact={false}
-                onToggleCompact={() => panelState.closePanel('sidebar')}
-                onClose={() => panelState.closePanel('sidebar')}
+                onToggleCompact={handleCopilotClose}
+                onClose={handleCopilotClose}
                 docId="current-doc"
                 defaultShowRecommendations={true}
                 onInsertText={handleInsertText}

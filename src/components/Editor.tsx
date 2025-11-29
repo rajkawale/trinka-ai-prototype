@@ -100,15 +100,17 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
         })
     }, [setCopilotQuery, setShowChat, setShowHealthSidebar, setShowGoalsModal])
 
+    const extensions = React.useMemo(() => [
+        StarterKit,
+        BubbleMenuExtension,
+        GrammarToneExtension.configure({
+            issues: grammarToneIssues,
+        }),
+        slashCommandExtension
+    ], [grammarToneIssues, slashCommandExtension])
+
     const editor = useEditor({
-        extensions: [
-            StarterKit,
-            BubbleMenuExtension,
-            GrammarToneExtension.configure({
-                issues: grammarToneIssues,
-            }),
-            slashCommandExtension
-        ],
+        extensions,
         content: `
       <h2>Academic Writing Sample</h2>
       <p>
@@ -125,7 +127,7 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
                 class: 'prose prose-lg max-w-none focus:outline-none min-h-[600px] p-10 bg-gradient-to-br from-gray-50/30 to-white',
             },
         },
-    })
+    }, [])
 
     const {
         preview,
@@ -178,7 +180,7 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
         if (!editor) return
         const { from, to } = editor.state.selection
         const selectedText = editor.state.doc.textBetween(from, to, ' ')
-        
+
         if (!selectedText.trim()) {
             showToast('Please select text to rephrase')
             return
@@ -196,7 +198,7 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
         if (!editor) return
         const { from, to } = editor.state.selection
         const selectedText = editor.state.doc.textBetween(from, to, ' ')
-        
+
         if (!selectedText.trim()) {
             showToast('Please select text to check grammar')
             return
@@ -340,21 +342,21 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
 
     // Track previous values to avoid unnecessary updates
     const prevMetricsRef = useRef({ wordCount: 0, readTime: '' })
-    
+
     // Flag to prevent recursive calls - critical to prevent infinite loops
     const isProcessingMetricsRef = useRef(false)
     // Debounce timer to prevent rapid-fire updates
     const metricsDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-    
+
     // Store editor in ref to avoid dependency issues
     const editorForMetricsRef = useRef(editor)
     useEffect(() => {
         editorForMetricsRef.current = editor
     }, [editor])
-    
+
     // Update metrics - use refs for everything to prevent recreation
     const updateMetaRef = useRef<(() => void) | null>(null)
-    
+
     // Create a stable function that doesn't depend on changing values
     const updateMeta = useCallback(() => {
         // CRITICAL: Prevent recursive calls - if already processing, skip
@@ -362,7 +364,7 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
             console.log('[Editor] updateMeta skipped - already processing')
             return
         }
-        
+
         const currentEditor = editorForMetricsRef.current
         console.log('[Editor] updateMeta called', { hasEditor: !!currentEditor })
         if (!currentEditor) return
@@ -390,7 +392,7 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
             // DO NOT update Editor's internal state - only notify parent via callback
             // The parent (App.tsx) will handle the state updates
             // This prevents the infinite loop caused by Editor state updates triggering re-renders
-            
+
             // Notify parent component of metrics change using ref to avoid dependency
             // Use setTimeout with 0ms delay to defer to next event loop tick
             // This breaks any potential synchronous loops
@@ -414,7 +416,7 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
             isProcessingMetricsRef.current = false
         }
     }, []) // Empty deps - use refs for editor and callback
-    
+
     // Store in ref
     updateMetaRef.current = updateMeta
 
@@ -424,7 +426,7 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
             console.log('[Editor] No editor, returning early')
             return
         }
-        
+
         // Create a stable wrapper function that calls the ref
         // This function is created once per effect run and doesn't change
         const handleUpdate = () => {
@@ -432,13 +434,13 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
                 updateMetaRef.current()
             }
         }
-        
+
         console.log('[Editor] Setting up editor.on("update") listener')
         editor.on('update', handleUpdate)
-        
+
         // DO NOT call updateMeta on mount - let it be called naturally when content changes
         // Calling it immediately can cause loops during initial render
-        
+
         return () => {
             console.log('[Editor] Cleaning up editor.on("update") listener')
             // Clear debounce timer on cleanup
@@ -457,16 +459,16 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
             {/* Minimal toolbar - formatting via slash commands */}
             <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-white sticky top-0 z-10">
                 <div className="flex items-center gap-3">
-                    <button 
-                        onClick={() => editor?.chain().focus().undo().run()} 
-                        className="p-1.5 hover:bg-gray-100 rounded text-gray-600 transition-colors" 
+                    <button
+                        onClick={() => editor?.chain().focus().undo().run()}
+                        className="p-1.5 hover:bg-gray-100 rounded text-gray-600 transition-colors"
                         title="Undo (Ctrl+Z)"
                     >
                         <Undo2 className="w-4 h-4" />
                     </button>
-                    <button 
-                        onClick={() => editor?.chain().focus().redo().run()} 
-                        className="p-1.5 hover:bg-gray-100 rounded text-gray-600 transition-colors" 
+                    <button
+                        onClick={() => editor?.chain().focus().redo().run()}
+                        className="p-1.5 hover:bg-gray-100 rounded text-gray-600 transition-colors"
                         title="Redo (Ctrl+Y)"
                     >
                         <Redo2 className="w-4 h-4" />
@@ -570,18 +572,18 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
                     position={tooltip.position}
                     onApply={async () => {
                         if (!editor || !tooltip.suggestion) return
-                        
+
                         // Apply the suggestion
                         const { from, to } = tooltip.suggestion
                         const replacementText = tooltip.suggestion.suggestion || tooltip.suggestion.message
-                        
+
                         editor
                             .chain()
                             .focus()
                             .setTextSelection({ from, to })
                             .insertContent(replacementText)
                             .run()
-                        
+
                         showToast('Suggestion applied')
                         closeTooltip()
                     }}
