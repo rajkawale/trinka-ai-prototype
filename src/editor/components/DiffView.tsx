@@ -88,7 +88,7 @@ export const DiffView: React.FC<DiffViewProps> = ({ originalText, newText, onRep
                         <span
                             key={index}
                             onClick={() => onReplace(part.value)}
-                            className="text-[#6F4FF0] font-bold hover:bg-[#6F4FF0]/10 cursor-pointer transition-colors rounded px-0.5"
+                            className="text-[#6C2BD9] font-bold hover:bg-[#6C2BD9]/10 cursor-pointer transition-colors rounded px-0.5"
                             title="Click to replace only this change"
                         >
                             {part.value}

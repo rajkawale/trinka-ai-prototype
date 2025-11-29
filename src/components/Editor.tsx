@@ -2,7 +2,6 @@ import React, { useEffect, useState, useCallback, useRef, forwardRef, useImperat
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { Undo2 } from 'lucide-react'
-import { cn } from '../lib/utils'
 import SuggestionPopup from '../editor/components/SuggestionPopup'
 import BubbleMenuExtension from '@tiptap/extension-bubble-menu'
 import { GrammarToneExtension } from '../extensions/GrammarToneExtension'
@@ -22,6 +21,7 @@ interface EditorProps {
     setShowChat: (show: boolean) => void
     setShowHealthSidebar: (show: boolean) => void
     setCopilotQuery: (query: string) => void
+    onMetricsChange?: (wordCount: number, readTime: string) => void
 }
 
 const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => {
@@ -29,6 +29,7 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
         setShowChat,
         setShowHealthSidebar,
         setCopilotQuery,
+        onMetricsChange,
     } = props
 
     const [wordCount, setWordCount] = useState(0)
@@ -114,14 +115,22 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
         }
     }))
 
-    // Handle selection changes to trigger popup
+    // Handle selection changes to trigger popup and cancel running operations
     useEffect(() => {
         if (!editor) return
 
         let debounceTimer: NodeJS.Timeout
+        let currentRequestId: string | null = null
 
         const handleSelection = ({ editor }: { editor: any }) => {
             clearTimeout(debounceTimer)
+
+            // Cancel any running AI generation when selection changes by closing popup
+            if (preview) {
+                console.debug('[TRINKA] Selection changed - closing suggestion popup')
+                setPreview(null)
+                setSelectionRect(null)
+            }
 
             debounceTimer = setTimeout(() => {
                 const { selection } = editor.state
@@ -148,17 +157,20 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
 
                     setSelectionRect(rect)
 
+                    currentRequestId = createRequestId()
                     setPreview({
                         status: 'idle',
                         label: 'Improve',
                         original: text,
                         range: { from, to },
-                        initialTab: 'improve'
+                        initialTab: 'improve',
+                        requestId: currentRequestId
                     })
                 } else {
                     // Close popup if selection is cleared
                     setPreview(null)
                     setSelectionRect(null)
+                    currentRequestId = null
                 }
             }, 300) // 300ms debounce
         }
@@ -169,7 +181,7 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
             editor.off('selectionUpdate', handleSelection)
             clearTimeout(debounceTimer)
         }
-    }, [editor, setPreview])
+    }, [editor, setPreview, preview, createRequestId])
 
     useEffect(() => {
         requestRewriteRef.current = requestRewrite
@@ -191,9 +203,13 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
 
         setWordCount(words)
         const readingTimeMinutes = Math.ceil(words / 200)
-        setReadTime(`${readingTimeMinutes} min`)
+        const readTimeStr = `${readingTimeMinutes} min`
+        setReadTime(readTimeStr)
 
-    }, [editor])
+        // Notify parent component of metrics change
+        onMetricsChange?.(words, readTimeStr)
+
+    }, [editor, onMetricsChange])
 
     useEffect(() => {
         if (!editor) return
@@ -206,19 +222,15 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
 
     return (
         <div className="relative flex flex-col h-full bg-white">
-            {/* Toolbar */}
+            {/* Minimal toolbar - formatting via slash commands */}
             <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-white sticky top-0 z-10">
-                <div className="flex items-center gap-1">
-                    <button onClick={() => editor?.chain().focus().undo().run()} className="p-1.5 hover:bg-gray-100 rounded text-gray-600" title="Undo">
+                <div className="flex items-center gap-3">
+                    <button 
+                        onClick={() => editor?.chain().focus().undo().run()} 
+                        className="p-1.5 hover:bg-gray-100 rounded text-gray-600 transition-colors" 
+                        title="Undo"
+                    >
                         <Undo2 className="w-4 h-4" />
-                    </button>
-                    <div className="w-px h-4 bg-gray-200 mx-1" />
-                    {/* Basic Formatting */}
-                    <button onClick={() => editor?.chain().focus().toggleBold().run()} className={cn("p-1.5 hover:bg-gray-100 rounded text-gray-600", editor?.isActive('bold') && "bg-gray-100 text-purple-600")} title="Bold">
-                        <span className="font-bold text-sm">B</span>
-                    </button>
-                    <button onClick={() => editor?.chain().focus().toggleItalic().run()} className={cn("p-1.5 hover:bg-gray-100 rounded text-gray-600", editor?.isActive('italic') && "bg-gray-100 text-purple-600")} title="Italic">
-                        <span className="italic text-sm font-serif">I</span>
                     </button>
                 </div>
 
@@ -229,7 +241,7 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
                     <div className="h-4 w-px bg-gray-200" />
                     <button
                         onClick={() => setShowGoalsModal(true)}
-                        className="text-xs font-medium text-gray-600 hover:text-purple-600 transition-colors"
+                        className="text-xs font-medium text-gray-600 hover:text-[#6C2BD9] transition-colors"
                     >
                         {goals.audience} • {goals.formality}
                     </button>
@@ -256,6 +268,11 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
                                 setPreview(null)
                                 showToast('Suggestion applied', () => editor.chain().focus().undo().run())
                             }
+                        }}
+                        onSendToCopilot={(query) => {
+                            setCopilotQuery(query)
+                            setShowChat(true)
+                            setPreview(null)
                         }}
                     />
                 )}

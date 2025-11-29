@@ -23,13 +23,16 @@ const ScorePill: React.FC<ScorePillProps> = ({ score, onClick, className }) => {
             disabled={!onClick}
             className={cn(
                 "flex items-center gap-2 px-3 py-1.5 rounded-full border shadow-sm transition-all",
-                onClick && "hover:shadow-md hover:scale-105 active:scale-95",
+                onClick && "hover:shadow-md hover:scale-105 active:scale-95 cursor-pointer",
+                !onClick && "cursor-default",
                 getScoreColor(score),
                 className
             )}
+            aria-label={`Writing quality score: ${score}`}
+            title="Click to view writing quality factors"
         >
             <Activity className="w-4 h-4" />
-            <span className="text-sm font-semibold">Score: {score}</span>
+            <span className="text-sm font-semibold whitespace-nowrap">Score: {score}</span>
         </button>
     )
 }

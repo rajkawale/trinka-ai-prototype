@@ -5,6 +5,7 @@ import { Menu, History, RotateCcw, Eye, X, User as UserIcon, Copy } from 'lucide
 import { cn } from './lib/utils'
 import ScorePill from './components/ScorePill'
 import CopilotFab from './components/CopilotFab'
+import WritingQualityPanel from './components/WritingQualityPanel'
 
 function App() {
   const [showVersionHistory, setShowVersionHistory] = useState(false)
@@ -12,6 +13,7 @@ function App() {
   const [versionHistory] = useState<unknown[]>([])
   const [showChat, setShowChat] = useState(false)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
+  const [showQualityPanel, setShowQualityPanel] = useState(false)
 
   const [_showHealthSidebar, setShowHealthSidebar] = useState(false)
   const [_copilotQuery, setCopilotQuery] = useState('')
@@ -19,6 +21,11 @@ function App() {
   const [documentTitle, setDocumentTitle] = useState(() => {
     return localStorage.getItem('trinka-document-title') || 'Untitled document'
   })
+
+  // Mock writing metrics - in production, these would come from editor state
+  const [writingScore] = useState(92)
+  const [wordCount, setWordCount] = useState(0)
+  const [readTime, setReadTime] = useState('0 min')
 
   const editorRef = useRef<EditorRef>(null)
 
@@ -100,9 +107,10 @@ function App() {
 
             <div className="h-6 w-px bg-gray-200" />
 
-            {/* Score Pill (Placeholder score for now) */}
+            {/* Score Pill - Toggles Writing Quality Panel */}
             <ScorePill
-              score={92}
+              score={writingScore}
+              onClick={() => setShowQualityPanel(prev => !prev)}
             />
 
             {/* Profile */}
@@ -130,6 +138,10 @@ function App() {
                 setShowChat={setShowChat}
                 setShowHealthSidebar={setShowHealthSidebar}
                 setCopilotQuery={setCopilotQuery}
+                onMetricsChange={(wc, rt) => {
+                  setWordCount(wc)
+                  setReadTime(rt)
+                }}
               />
             </div>
           </div>
@@ -160,6 +172,14 @@ function App() {
           </div>
         )}
 
+        {/* Writing Quality Panel */}
+        <WritingQualityPanel
+          isOpen={showQualityPanel}
+          onClose={() => setShowQualityPanel(false)}
+          score={writingScore}
+          wordCount={wordCount}
+          readTime={readTime}
+        />
       </main>
 
       {/* Mobile: Copilot as Bottom Sheet */}

@@ -15,18 +15,22 @@ interface SuggestionPopupProps {
     onSendToCopilot?: (query: string) => void
 }
 
+// Primary tabs - always visible (Trinka brand design)
 const PRIMARY_TABS = [
     { id: 'improve', label: 'Improve' },
     { id: 'rephrase', label: 'Rephrase' },
     { id: 'shorten', label: 'Shorten' },
 ]
 
+// Secondary tabs - shown in "More" menu
 const MORE_OPTIONS = [
     { id: 'expand', label: 'Expand' },
     { id: 'formal', label: 'Formal' },
     { id: 'friendly', label: 'Friendly' },
     { id: 'academic', label: 'Academic' },
 ]
+
+// Trinka brand color: #6C2BD9
 
 export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
     isOpen,
@@ -127,11 +131,22 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
         }
     }
 
-    const handleCustomSubmit = (e: React.KeyboardEvent) => {
+    const handleCustomSubmit = async (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && customPrompt.trim()) {
+            e.preventDefault()
+            const prompt = customPrompt.trim()
             setActiveTab('custom')
-            generateSuggestion(customPrompt)
+            await generateSuggestion(prompt)
         }
+    }
+
+    const handleSendToCopilot = () => {
+        const query = customPrompt.trim() 
+            ? `Custom instruction: "${customPrompt}" for text: "${originalText}"`
+            : `Why did you suggest this change: "${suggestion || originalText}"?`
+        
+        onSendToCopilot?.(query)
+        onClose()
     }
 
     return (
@@ -152,8 +167,8 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
                             transform: 'translateX(-50%)'
                         }}
                     >
-                        {/* Header / Tabs */}
-                        <div className="flex items-center gap-1 p-2 border-b border-gray-100 bg-gray-50/50">
+                        {/* Header / Tabs - Trinka brand styling */}
+                        <div className="flex items-center gap-1 p-2 border-b border-gray-100 bg-white">
                             <div className="flex items-center gap-1">
                                 {PRIMARY_TABS.map(tab => (
                                     <button
@@ -166,7 +181,7 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
                                         className={cn(
                                             "px-3 py-1.5 text-[13px] font-medium rounded-lg transition-all whitespace-nowrap",
                                             activeTab === tab.id
-                                                ? "bg-[#6F4FF0]/10 text-[#6F4FF0]"
+                                                ? "bg-[#6C2BD9]/10 text-[#6C2BD9]"
                                                 : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
                                         )}
                                     >
@@ -179,8 +194,8 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
                                         onClick={() => setIsMoreOpen(!isMoreOpen)}
                                         className={cn(
                                             "px-3 py-1.5 text-[13px] font-medium rounded-lg transition-all whitespace-nowrap flex items-center gap-1",
-                                            isMoreOpen || !PRIMARY_TABS.find(t => t.id === activeTab) && activeTab !== 'custom'
-                                                ? "bg-[#6F4FF0]/10 text-[#6F4FF0]"
+                                            isMoreOpen || (!PRIMARY_TABS.find(t => t.id === activeTab) && activeTab !== 'custom')
+                                                ? "bg-[#6C2BD9]/10 text-[#6C2BD9]"
                                                 : "text-gray-500 hover:text-gray-900 hover:bg-gray-100"
                                         )}
                                     >
@@ -199,7 +214,7 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
                                                     }}
                                                     className={cn(
                                                         "w-full text-left px-3 py-2 text-[13px] hover:bg-gray-50 transition-colors",
-                                                        activeTab === option.id ? "text-[#6F4FF0] font-medium" : "text-gray-700"
+                                                        activeTab === option.id ? "text-[#6C2BD9] font-medium" : "text-gray-700"
                                                     )}
                                                 >
                                                     {option.label}
@@ -219,7 +234,7 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
                                     onChange={(e) => setCustomPrompt(e.target.value)}
                                     onKeyDown={handleCustomSubmit}
                                     placeholder="Ask AI to..."
-                                    className="w-full px-3 py-1.5 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#6F4FF0]/20 focus:border-[#6F4FF0] transition-all"
+                                    className="w-full px-3 py-1.5 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#6C2BD9]/20 focus:border-[#6C2BD9] transition-all"
                                 />
                                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                                     <span className="text-[10px] text-gray-400 bg-gray-100 px-1 rounded">↵</span>
@@ -231,7 +246,7 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
                         <div className="p-4 bg-white min-h-[120px]">
                             {status === 'loading' ? (
                                 <div className="flex flex-col items-center justify-center py-8 text-gray-400 gap-3">
-                                    <Loader2 className="w-6 h-6 animate-spin text-[#6F4FF0]" />
+                                    <Loader2 className="w-6 h-6 animate-spin text-[#6C2BD9]" />
                                     <span className="text-sm">Generating suggestion...</span>
                                 </div>
                             ) : status === 'error' ? (
@@ -248,13 +263,24 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
 
                                     <div className="flex items-center justify-between pt-2">
                                         <div className="flex items-center gap-2">
-                                            <button
-                                                onClick={() => onSendToCopilot?.(`Why did you suggest this change: "${suggestion}"?`)}
-                                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                                            >
-                                                <MessageSquarePlus className="w-3.5 h-3.5" />
-                                                Ask Copilot
-                                            </button>
+                                            {customPrompt && (
+                                                <button
+                                                    onClick={handleSendToCopilot}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                                >
+                                                    <MessageSquarePlus className="w-3.5 h-3.5" />
+                                                    Send to Copilot
+                                                </button>
+                                            )}
+                                            {!customPrompt && (
+                                                <button
+                                                    onClick={() => onSendToCopilot?.(`Why did you suggest this change: "${suggestion}"?`)}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                                >
+                                                    <MessageSquarePlus className="w-3.5 h-3.5" />
+                                                    Ask Copilot
+                                                </button>
+                                            )}
                                         </div>
 
                                         <div className="flex items-center gap-2">
@@ -266,7 +292,7 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
                                             </button>
                                             <button
                                                 onClick={() => onAccept(suggestion)}
-                                                className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium bg-[#6F4FF0] text-white hover:bg-[#5B3FD9] rounded-lg shadow-sm shadow-[#6F4FF0]/20 transition-all"
+                                                className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium bg-[#6C2BD9] text-white hover:bg-[#5A27C2] rounded-lg shadow-sm shadow-[#6C2BD9]/20 transition-all"
                                             >
                                                 <Check className="w-3.5 h-3.5" />
                                                 Accept Change
