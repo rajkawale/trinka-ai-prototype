@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Loader2, Sparkles, ChevronDown, Check, MessageSquarePlus } from 'lucide-react'
+import { Loader2, ChevronDown, Check, MessageSquarePlus } from 'lucide-react'
 import { Portal } from '../../components/Portal'
 import { DiffView } from './DiffView'
 import { cn } from '../../lib/utils'
@@ -241,8 +241,9 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
                             ) : suggestion ? (
                                 <div className="space-y-4">
                                     <DiffView
-                                        original={originalText}
-                                        modified={suggestion}
+                                        originalText={originalText}
+                                        newText={suggestion}
+                                        onReplace={onAccept}
                                     />
 
                                     <div className="flex items-center justify-between pt-2">

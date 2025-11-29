@@ -2,27 +2,20 @@ import { useState, useEffect, useRef } from 'react'
 import Editor, { type EditorRef } from './components/Editor'
 import Copilot from './components/Copilot'
 import { Menu, History, RotateCcw, Eye, X, User as UserIcon, Copy } from 'lucide-react'
-import { cn, trinkaApi } from './lib/utils'
+import { cn } from './lib/utils'
 import ScorePill from './components/ScorePill'
 import CopilotFab from './components/CopilotFab'
 
 function App() {
-  const [isCopilotCompact, setIsCopilotCompact] = useState(false)
-  const [windowWidth] = useState(window.innerWidth)
-  const [hasSelection] = useState(false)
-
   const [showVersionHistory, setShowVersionHistory] = useState(false)
-  const [versionHistory, setVersionHistory] = useState<unknown[]>([])
+  // Mock version history for display
+  const [versionHistory] = useState<unknown[]>([])
   const [showChat, setShowChat] = useState(false)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
 
-  // State from HEAD
-  const [isPrivacyMode] = useState(false)
-  const [showHealthSidebar, setShowHealthSidebar] = useState(false)
-  const [copilotQuery, setCopilotQuery] = useState('')
-
-  // State from ux-fixes
-  const [copilotInitialMessage, setCopilotInitialMessage] = useState<string | null>(null)
+  const [_showHealthSidebar, setShowHealthSidebar] = useState(false)
+  const [_copilotQuery, setCopilotQuery] = useState('')
+  const [windowWidth] = useState(window.innerWidth)
   const [documentTitle, setDocumentTitle] = useState(() => {
     return localStorage.getItem('trinka-document-title') || 'Untitled document'
   })
@@ -46,33 +39,6 @@ function App() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
-
-  const MOCK_VERSION_HISTORY = [
-    {
-      id: 'v1',
-      timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(), // 5 mins ago
-      action: 'AI Rewrite',
-      summary: 'Rewrote introduction for clarity',
-      word_count: 450,
-      author: 'Trinka AI'
-    },
-    {
-      id: 'v2',
-      timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(), // 30 mins ago
-      action: 'Manual Edit',
-      summary: 'Updated methodology section',
-      word_count: 420,
-      author: 'You'
-    },
-    {
-      id: 'v3',
-      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), // 2 hours ago
-      action: 'Paste',
-      summary: 'Pasted content from source',
-      word_count: 380,
-      author: 'You'
-    }
-  ]
 
   const handleRestoreVersion = (id: string) => {
     console.log('Restore version:', id)
@@ -161,18 +127,9 @@ function App() {
             <div className={cn("transition-all duration-300", showChat ? "w-full" : "w-full max-w-5xl")}>
               <Editor
                 ref={editorRef}
-                showChat={showChat}
                 setShowChat={setShowChat}
-                isPrivacyMode={isPrivacyMode}
-                showHealthSidebar={showHealthSidebar}
                 setShowHealthSidebar={setShowHealthSidebar}
                 setCopilotQuery={setCopilotQuery}
-                onTriggerCopilot={(message?: string) => {
-                  setShowChat(true)
-                  if (message) {
-                    setCopilotInitialMessage(message)
-                  }
-                }}
               />
             </div>
           </div>
@@ -184,18 +141,9 @@ function App() {
               showChat ? "w-[400px] translate-x-0" : "w-0 translate-x-full opacity-0"
             )}>
               <Copilot
-                isCompact={isCopilotCompact}
-                onToggleCompact={() => setIsCopilotCompact(!isCopilotCompact)}
-                hasSelection={hasSelection}
-                isPrivacyMode={isPrivacyMode}
                 onClose={() => setShowChat(false)}
                 docId="current-doc"
                 defaultShowRecommendations={true}
-                initialMessage={copilotInitialMessage || copilotQuery}
-                onMessageHandled={() => {
-                  setCopilotInitialMessage(null)
-                  setCopilotQuery('')
-                }}
                 onInsertText={handleInsertText}
               />
             </aside>
@@ -231,7 +179,7 @@ function App() {
             </div>
             <div className="overflow-y-auto max-h-[calc(60vh-60px)]">
               <Copilot
-                hasSelection={hasSelection}
+                onInsertText={handleInsertText}
               />
             </div>
           </div>

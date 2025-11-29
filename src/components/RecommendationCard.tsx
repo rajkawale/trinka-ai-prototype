@@ -38,7 +38,7 @@ const RecommendationCard = ({ recommendation, docId, onApply, onDismiss, onChat 
         openPopover(e.currentTarget, (
             <RecommendationDetailPopover
                 recommendation={recommendation}
-                docId={docId}
+                docId={docId || 'unknown'}
                 onClose={closePopover}
                 onApply={onApply}
                 onDismiss={onDismiss}
@@ -70,7 +70,7 @@ const RecommendationCard = ({ recommendation, docId, onApply, onDismiss, onChat 
                 <button
                     onClick={(e) => {
                         e.stopPropagation()
-                        onApply(recommendation.id)
+                        onApply(recommendation.id, recommendation.replacementText || recommendation.fullText)
                     }}
                     className="p-1.5 text-gray-400 hover:text-[#6C2BD9] hover:bg-[#6C2BD9]/10 rounded-md transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
                     title="Insert"

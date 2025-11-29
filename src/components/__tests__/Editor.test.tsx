@@ -53,10 +53,7 @@ vi.mock('../PopoverManager', () => ({
 describe('Editor', () => {
     it('should render editor content', () => {
         render(<Editor
-            showChat={false}
             setShowChat={() => { }}
-            isPrivacyMode={false}
-            showHealthSidebar={false}
             setShowHealthSidebar={() => { }}
             setCopilotQuery={() => { }}
         />)

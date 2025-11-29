@@ -1,112 +1,41 @@
 import React, { useEffect, useState, useCallback, useRef, forwardRef, useImperativeHandle, type ForwardedRef } from 'react'
-import { useEditor, EditorContent, BubbleMenu } from '@tiptap/react'
+import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import Placeholder from '@tiptap/extension-placeholder'
-import Underline from '@tiptap/extension-underline'
-import TextAlign from '@tiptap/extension-text-align'
-import TextStyle from '@tiptap/extension-text-style'
-import { Color } from '@tiptap/extension-color'
-import Highlight from '@tiptap/extension-highlight'
-import Image from '@tiptap/extension-image'
-import Link from '@tiptap/extension-link'
-import TaskItem from '@tiptap/extension-task-item'
-import TaskList from '@tiptap/extension-task-list'
-import {
-    X,
-    Undo2,
-    Upload,
-    FileText,
-    Loader2
-} from 'lucide-react'
+import { Undo2 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import SuggestionPopup from '../editor/components/SuggestionPopup'
-import WritingScorePill from '../editor/components/WritingScorePill'
-import SlashCommands from '../editor/components/SlashCommands'
-import DiffView from '../editor/components/DiffView'
-import DiffPreviewBubble from '../editor/components/DiffPreviewBubble'
-import { Suggestion } from '@tiptap/suggestion'
 import BubbleMenuExtension from '@tiptap/extension-bubble-menu'
 import { GrammarToneExtension } from '../extensions/GrammarToneExtension'
 import type { GrammarToneIssue } from '../extensions/GrammarToneExtension'
 import GoalsModal, { type Goals } from './GoalsModal'
-import SuggestionsModal from './SuggestionsModal'
 import { usePopover } from './PopoverManager'
-import RecommendationDetailPopover from './RecommendationDetailPopover'
-import { Portal } from './Portal'
-import type { Recommendation, ActionType } from './RecommendationCard'
 import { countWords } from '../editor/utils/countWords'
 import { useAI } from '../editor/hooks/useAI'
 import { configureSlashCommands } from '../editor/components/SlashCommands'
 import { createRequestId } from '../editor/utils/editorUtils'
-import type { QualitySignal } from '../editor/types'
-import ImprovementSuggestionsModal from './ImprovementSuggestionsModal'
-
-type VersionSnapshot = {
-    id: string
-    timestamp: string
-    action: string
-    delta: string
-}
 
 export interface EditorRef {
     insertContent: (text: string) => void
 }
 
 interface EditorProps {
-    showChat: boolean
     setShowChat: (show: boolean) => void
-    isPrivacyMode: boolean
-    showHealthSidebar: boolean
     setShowHealthSidebar: (show: boolean) => void
     setCopilotQuery: (query: string) => void
-    onTriggerCopilot?: (initialMessage?: string) => void
 }
 
 const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => {
     const {
-        showChat,
         setShowChat,
-        isPrivacyMode: _isPrivacyMode,
-        showHealthSidebar,
         setShowHealthSidebar,
         setCopilotQuery,
-        onTriggerCopilot
     } = props
 
-    const docId = 'current-doc'
-    const [qualitySignals, setQualitySignals] = useState<QualitySignal[]>([
-        { label: 'Tone', value: 'Stable', status: 'success' },
-        { label: 'Clarity', value: 'Crisp', status: 'success' },
-        { label: 'Structure', value: '2 headings', status: 'info' },
-        { label: 'Coherence Score', value: 'High', status: 'success' },
-        { label: 'Readability', value: 'Good', status: 'success' },
-        { label: 'Academic Integrity', value: 'Safe', status: 'success' },
-    ])
     const [wordCount, setWordCount] = useState(0)
     const [readTime, setReadTime] = useState('0 min')
-    const [revisionCount, setRevisionCount] = useState(0)
-    const [showUploadModal, setShowUploadModal] = useState(false)
-    const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
     const [toast, setToast] = useState<{ message: string; undo?: () => void } | null>(null)
-    const [showSuggestionsModal, setShowSuggestionsModal] = useState(false)
-    const [topSuggestions, setTopSuggestions] = useState<Recommendation[]>([])
-    const [versions, setVersions] = useState<VersionSnapshot[]>([])
-    const [showVersionTimeline, setShowVersionTimeline] = useState(false)
-    const [selectedFactorForImprovement, setSelectedFactorForImprovement] = useState<string | null>(null)
-    const [writingScore, setWritingScore] = useState(100)
-    const [grammarToneIssues, setGrammarToneIssues] = useState<GrammarToneIssue[]>([])
-
-    // State from ux-fixes
-    const [dictionary, setDictionary] = useState<Set<string>>(() => {
-        const saved = localStorage.getItem('trinka-dictionary')
-        return saved ? new Set(JSON.parse(saved)) : new Set()
-    })
-    const [ignoredWords, setIgnoredWords] = useState<Set<string>>(new Set())
-
-    const showToast = useCallback((message: string, undo?: () => void) => {
-        setToast({ message, undo })
-        setTimeout(() => setToast(null), 3000)
-    }, [])
+    const [grammarToneIssues] = useState<GrammarToneIssue[]>([])
+    const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null)
 
     // Goals & Document Health
     const [showGoalsModal, setShowGoalsModal] = useState(false)
@@ -120,8 +49,13 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
     })
 
     const editorRef = useRef<HTMLDivElement>(null)
-    const { openPopover, closePopover } = usePopover()
+    const { openPopover: _openPopover, closePopover: _closePopover } = usePopover()
     const requestRewriteRef = useRef<any>(null)
+
+    const showToast = useCallback((message: string, undo?: () => void) => {
+        setToast({ message, undo })
+        setTimeout(() => setToast(null), 3000)
+    }, [])
 
     const slashCommandExtension = React.useMemo(() => {
         return configureSlashCommands({
@@ -158,22 +92,16 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
                 class: 'prose prose-lg max-w-none focus:outline-none min-h-[600px] p-10 bg-gradient-to-br from-gray-50/30 to-white',
             },
         },
-        onSelectionUpdate: () => {
-            // Selection tracking removed - no longer needed for Quick Actions
-        },
     })
 
     const {
         preview,
         setPreview,
         requestRewrite,
-        applySuggestion,
-        discardSuggestion,
-        createSnapshot
     } = useAI({
         editor,
-        setRevisionCount,
-        setVersions,
+        setRevisionCount: () => { }, // Mock setRevisionCount
+        setVersions: () => { }, // Mock setVersions
         showToast,
         createRequestId
     })
@@ -202,6 +130,24 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
 
                 // Only show if selection is not empty and has content
                 if (!empty && text.trim().length > 0) {
+                    // Calculate selection rect
+                    const { view } = editor
+                    const start = view.coordsAtPos(from)
+                    const end = view.coordsAtPos(to)
+                    const rect = {
+                        left: start.left,
+                        top: start.top,
+                        bottom: end.bottom,
+                        right: end.right,
+                        width: end.right - start.left,
+                        height: end.bottom - start.top,
+                        x: start.left,
+                        y: start.top,
+                        toJSON: () => { }
+                    } as DOMRect
+
+                    setSelectionRect(rect)
+
                     setPreview({
                         status: 'idle',
                         label: 'Improve',
@@ -212,6 +158,7 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
                 } else {
                     // Close popup if selection is cleared
                     setPreview(null)
+                    setSelectionRect(null)
                 }
             }, 300) // 300ms debounce
         }
@@ -241,56 +188,12 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
 
         const plainText = editor.state.doc.textBetween(0, editor.state.doc.content.size, ' ')
         const words = countWords(plainText)
-        console.debug('trinka:wordcount', words)
-
-        let headingCount = 0
-        editor.state.doc.descendants((node) => {
-            if (node.type.name === 'heading') {
-                headingCount++
-            }
-        })
-
-        // Calculate metrics based on Goals
-        let toneStatus = 'Stable'
-        let clarityStatus = 'Crisp'
-
-        // Formality Logic
-        if (goals.formality === 'formal') {
-            toneStatus = words % 5 === 0 ? 'Formal' : 'Needs Polish'
-        } else if (goals.formality === 'casual') {
-            toneStatus = words % 5 === 0 ? 'Casual' : 'Too Stiff'
-        }
 
         setWordCount(words)
         const readingTimeMinutes = Math.ceil(words / 200)
         setReadTime(`${readingTimeMinutes} min`)
 
-        const signals: QualitySignal[] = [
-            { label: 'Correctness', value: 'Good', status: 'success' },
-            { label: 'Clarity', value: clarityStatus, status: 'success' },
-            { label: 'Tone', value: toneStatus, status: toneStatus.includes('Needs') || toneStatus.includes('Too') ? 'warning' : 'success' },
-            { label: 'Engagement', value: 'High', status: 'success' },
-            { label: 'Structure', value: `${headingCount || 1} heading${(headingCount || 1) !== 1 ? 's' : ''}`, status: 'info' },
-        ]
-
-        setQualitySignals(signals)
-
-        // Calculate Weighted Score
-        const weights: Record<string, number> = {
-            'Correctness': 0.35,
-            'Clarity': 0.30,
-            'Tone': 0.15,
-            'Engagement': 0.10,
-            'Structure': 0.10
-        }
-
-        let score = 100
-        if (toneStatus.includes('Needs') || toneStatus.includes('Too')) score -= 15
-        if (clarityStatus.includes('Needs')) score -= 15
-
-        setWritingScore(Math.max(0, score))
-
-    }, [editor, goals])
+    }, [editor])
 
     useEffect(() => {
         if (!editor) return
@@ -300,19 +203,6 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
             editor.off('update', updateMeta)
         }
     }, [editor, updateMeta])
-
-    const handleApplyQuickFix = (fix: string) => {
-        if (!editor) return
-        editor.chain().focus().insertContent(fix).run()
-        showToast('Fix applied', () => editor.chain().focus().undo().run())
-    }
-
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files) {
-            setUploadedFiles(Array.from(e.target.files))
-            showToast(`${e.target.files.length} files uploaded`)
-        }
-    }
 
     return (
         <div className="relative flex flex-col h-full bg-white">
@@ -329,9 +219,6 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
                     </button>
                     <button onClick={() => editor?.chain().focus().toggleItalic().run()} className={cn("p-1.5 hover:bg-gray-100 rounded text-gray-600", editor?.isActive('italic') && "bg-gray-100 text-purple-600")} title="Italic">
                         <span className="italic text-sm font-serif">I</span>
-                    </button>
-                    <button onClick={() => editor?.chain().focus().toggleUnderline().run()} className={cn("p-1.5 hover:bg-gray-100 rounded text-gray-600", editor?.isActive('underline') && "bg-gray-100 text-purple-600")} title="Underline">
-                        <span className="underline text-sm">U</span>
                     </button>
                 </div>
 
@@ -356,9 +243,11 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
                 {/* Floating Suggestions */}
                 {preview && (
                     <SuggestionPopup
-                        preview={preview}
+                        isOpen={!!preview}
+                        originalText={preview.original}
+                        selectionRect={selectionRect}
                         onClose={() => setPreview(null)}
-                        onApply={(text) => {
+                        onAccept={(text) => {
                             if (editor) {
                                 editor.chain().focus()
                                     .setTextSelection(preview.range)
@@ -368,8 +257,6 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
                                 showToast('Suggestion applied', () => editor.chain().focus().undo().run())
                             }
                         }}
-                        onDiscard={() => setPreview(null)}
-                        onRequestRewrite={requestRewrite}
                     />
                 )}
             </div>
@@ -379,7 +266,7 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
                 <GoalsModal
                     isOpen={showGoalsModal}
                     onClose={() => setShowGoalsModal(false)}
-                    goals={goals}
+                    initialGoals={goals}
                     onSave={handleSaveGoals}
                 />
             )}
