@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useRef, useState, useEffect } from 'react'
 import { Gauge, X } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { useClickOutside } from '../hooks/useClickOutside'
@@ -18,6 +18,11 @@ interface WritingQualityPanelProps {
     readTime: string
     qualitySignals?: QualitySignal[]
     onApplyFix?: (fix: string) => void
+    position?: 'left' | 'right' | 'floating'
+    anchorElement?: HTMLElement | null
+    isScoreSubPopupOpen?: boolean
+    onOpenSubPopup?: () => void
+    onCloseSubPopup?: () => void
 }
 
 /**
@@ -41,10 +46,23 @@ export const WritingQualityPanel: React.FC<WritingQualityPanelProps> = ({
     wordCount,
     readTime,
     qualitySignals = DEFAULT_QUALITY_SIGNALS,
-    onApplyFix
+    onApplyFix,
+    position = 'floating',
+    anchorElement,
+    isScoreSubPopupOpen = false,
+    onOpenSubPopup,
+    onCloseSubPopup
 }) => {
     const panelRef = useRef<HTMLDivElement>(null)
+    const [panelPosition, setPanelPosition] = useState({ top: 0, left: 0 })
     const [selectedFactor, setSelectedFactor] = useState<string | null>(null)
+    
+    // Reset selected factor when sub-popup closes
+    useEffect(() => {
+        if (!isScoreSubPopupOpen) {
+            setSelectedFactor(null)
+        }
+    }, [isScoreSubPopupOpen])
 
     useClickOutside(panelRef, () => {
         if (isOpen) {
@@ -52,15 +70,69 @@ export const WritingQualityPanel: React.FC<WritingQualityPanelProps> = ({
         }
     })
 
+    // Calculate panel position based on anchor element or position prop
+    useEffect(() => {
+        if (!isOpen || !anchorElement) return
+
+        if (position === 'floating' && anchorElement) {
+            const rect = anchorElement.getBoundingClientRect()
+            const spacing = 8
+            
+            // Position ABOVE the button (opens upward from bottom-left)
+            // Calculate height needed for panel (max-h-[80vh] = ~600px max)
+            const panelHeight = Math.min(600, window.innerHeight * 0.8)
+            
+            setPanelPosition({
+                top: rect.top - panelHeight - spacing, // Position above button with spacing
+                left: rect.left // Align with left edge of button
+            })
+            
+            // Adjust if panel would overflow top - position to the right instead
+            if (rect.top - panelHeight - spacing < 0) {
+                setPanelPosition({
+                    top: rect.bottom + spacing, // Position below if not enough space above
+                    left: rect.left
+                })
+            }
+        }
+    }, [isOpen, anchorElement, position])
+
+    // Position classes based on position prop with smooth animations
+    const positionClasses = 
+        position === 'floating' && anchorElement
+            ? `fixed z-[45] transition-all duration-300 ease-out animate-in fade-in slide-in-from-bottom-2`
+            : position === 'right'
+            ? 'fixed top-16 right-4 z-[45] transition-all duration-300 ease-out animate-in fade-in slide-in-from-right-2'
+            : 'fixed top-16 left-4 z-[45] transition-all duration-300 ease-out animate-in fade-in slide-in-from-left-2'
+
+    const panelStyle: React.CSSProperties = position === 'floating' && anchorElement
+        ? { 
+            top: `${panelPosition.top}px`, 
+            left: `${panelPosition.left}px`,
+        }
+        : {}
+
+    // Reset sub-popup when main panel closes
+    useEffect(() => {
+        if (!isOpen && onCloseSubPopup) {
+            onCloseSubPopup()
+        }
+    }, [isOpen, onCloseSubPopup])
+
     if (!isOpen) return null
 
-    // Adjust position based on Copilot - move to left to avoid Copilot overlap
     return (
         <>
-        <div className="fixed top-16 left-4 z-40 animate-in fade-in slide-in-from-top-2 duration-200">
+        {/* Backdrop for Score Panel */}
+        <div 
+            className="fixed inset-0 bg-black/20 z-[44] animate-in fade-in duration-200"
+            onClick={onClose}
+            aria-hidden="true"
+        />
+        <div className={positionClasses} style={panelStyle}>
             <div
                 ref={panelRef}
-                className="bg-white rounded-xl border border-gray-200 shadow-xl p-4 w-80 max-h-[80vh] overflow-y-auto"
+                className="bg-white rounded-xl border border-gray-200 shadow-xl p-4 w-80 max-h-[80vh] overflow-y-auto transition-all duration-300"
             >
                 {/* Header */}
                 <div className="flex items-center justify-between mb-4">
@@ -97,8 +169,11 @@ export const WritingQualityPanel: React.FC<WritingQualityPanelProps> = ({
                             <button
                                 key={signal.label}
                                 onClick={() => {
-                                    // Open improvement suggestions modal
+                                    // Set selected factor and open sub-popup
                                     setSelectedFactor(signal.label)
+                                    if (onOpenSubPopup) {
+                                        onOpenSubPopup()
+                                    }
                                 }}
                                 className="w-full group text-left"
                             >
@@ -146,10 +221,15 @@ export const WritingQualityPanel: React.FC<WritingQualityPanelProps> = ({
             </div>
         </div>
         {/* Improvement Suggestions Modal */}
-        {selectedFactor && (
+        {isScoreSubPopupOpen && selectedFactor && (
             <ImprovementSuggestionsModal
                 factor={selectedFactor}
-                onClose={() => setSelectedFactor(null)}
+                onClose={() => {
+                    setSelectedFactor(null)
+                    if (onCloseSubPopup) {
+                        onCloseSubPopup()
+                    }
+                }}
                 onApplyFix={(fix) => {
                     if (onApplyFix) {
                         onApplyFix(fix)
@@ -157,6 +237,9 @@ export const WritingQualityPanel: React.FC<WritingQualityPanelProps> = ({
                         console.log('[WritingQualityPanel] Apply fix requested:', fix)
                     }
                     setSelectedFactor(null)
+                    if (onCloseSubPopup) {
+                        onCloseSubPopup()
+                    }
                 }}
             />
         )}

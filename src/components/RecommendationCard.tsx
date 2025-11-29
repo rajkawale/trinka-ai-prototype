@@ -49,19 +49,40 @@ const RecommendationCard = ({ recommendation, docId, onApply, onDismiss, onChat 
         })
     }
 
+    // Determine badge type from action type
+    const getBadgeType = (actionType: ActionType): 'grammar' | 'clarity' | 'tone' | 'style' => {
+        if (actionType === 'rewrite' || actionType === 'clarify') return 'clarity'
+        if (actionType === 'tone') return 'tone'
+        return 'grammar'
+    }
+
+    const badgeType = getBadgeType(recommendation.actionType)
+    const badgeConfig = {
+        grammar: { label: 'Grammar', color: 'bg-red-100 text-red-700' },
+        clarity: { label: 'Clarity', color: 'bg-blue-100 text-blue-700' },
+        tone: { label: 'Tone', color: 'bg-amber-100 text-amber-700' },
+        style: { label: 'Style', color: 'bg-purple-100 text-purple-700' }
+    }
+    const badge = badgeConfig[badgeType]
+
     return (
         <div className={cn(
-            "w-full flex items-center gap-2 p-3 rounded-lg hover:bg-gray-50 transition-all group border border-gray-100 hover:border-[#6C2BD9]/20 hover:shadow-sm min-h-[56px]"
+            "w-full flex items-center gap-2 p-3 rounded-md hover:bg-gray-50 transition-all group border border-gray-100 hover:border-[#6C2BD9]/20 hover:shadow-md shadow-sm"
         )}>
             <button
                 onClick={handleClick}
                 className="flex-1 text-left focus:outline-none"
                 aria-label={`${recommendation.title}. Open details`}
             >
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between gap-2">
                     <div className="flex-1">
-                        <p className="text-[14px] font-semibold text-gray-800">{recommendation.title}</p>
-                        <p className="text-[12px] text-[#6b7280] mt-0.5">{recommendation.summary}</p>
+                        <div className="flex items-center gap-2 mb-1">
+                            <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded", badge.color)}>
+                                {badge.label}
+                            </span>
+                            <p className="text-[14px] font-semibold text-gray-800">{recommendation.title}</p>
+                        </div>
+                        <p className="text-[12px] font-normal text-gray-600 opacity-80 mt-0.5">{recommendation.summary}</p>
                     </div>
                 </div>
             </button>

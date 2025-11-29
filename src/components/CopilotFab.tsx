@@ -13,8 +13,12 @@ const CopilotFab: React.FC<CopilotFabProps> = ({ onClick, isOpen, className }) =
         <div className="group relative">
             <button
                 onClick={onClick}
+                onMouseDown={(e) => {
+                  // Prevent default focus behavior on mousedown
+                  e.preventDefault()
+                }}
                 className={cn(
-                    "w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-110 active:scale-95",
+                    "w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-all duration-300 hover:shadow-xl hover:scale-110 active:scale-95 focus:outline-none focus:ring-0 focus-visible:outline-none active:outline-none active:ring-0",
                     isOpen
                         ? "bg-gray-100 text-gray-600 rotate-180"
                         : "bg-gradient-to-r from-[#6C2BD9] to-[#8B5CF6] text-white",

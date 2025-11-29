@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Loader2, ChevronDown, Check, MessageSquarePlus } from 'lucide-react'
+import { Loader2, ChevronDown, Check, X, BookOpen } from 'lucide-react'
 import { Portal } from '../../components/Portal'
 import { DiffView } from './DiffView'
 import { cn } from '../../lib/utils'
@@ -12,7 +12,6 @@ interface SuggestionPopupProps {
     onAccept: (newText: string) => void
     selectionRect?: DOMRect | null
     initialTab?: string
-    onSendToCopilot?: (query: string) => void
 }
 
 // Primary tabs - always visible (Trinka brand design)
@@ -38,8 +37,7 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
     originalText,
     onAccept,
     selectionRect,
-    initialTab = 'improve',
-    onSendToCopilot
+    initialTab = 'improve'
 }) => {
     const [activeTab, setActiveTab] = useState(initialTab)
     const [customPrompt, setCustomPrompt] = useState('')
@@ -140,14 +138,6 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
         }
     }
 
-    const handleSendToCopilot = () => {
-        const query = customPrompt.trim() 
-            ? `Custom instruction: "${customPrompt}" for text: "${originalText}"`
-            : `Why did you suggest this change: "${suggestion || originalText}"?`
-        
-        onSendToCopilot?.(query)
-        onClose()
-    }
 
     return (
         <Portal>
@@ -160,7 +150,7 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
                     />
                     <div
                         ref={popupRef}
-                        className="absolute z-[9999] w-[600px] bg-white rounded-xl shadow-xl border border-gray-200/60 ring-1 ring-black/5 overflow-hidden font-sans pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-150"
+                        className="absolute z-[9999] w-[480px] bg-white rounded-xl shadow-xl border border-gray-200/60 ring-1 ring-black/5 overflow-hidden font-sans pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-150"
                         style={{
                             top: position.top,
                             left: position.left,
@@ -169,7 +159,7 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
                     >
                         {/* Header / Tabs - Trinka brand styling */}
                         <div className="flex items-center gap-1 p-2 border-b border-gray-100 bg-white">
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1 flex-1">
                                 {PRIMARY_TABS.map(tab => (
                                     <button
                                         key={tab.id}
@@ -225,8 +215,15 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
                                 </div>
                             </div>
 
-                            <div className="flex-1" />
-
+                            {/* Close Button */}
+                            <button
+                                onClick={onClose}
+                                className="p-1.5 hover:bg-gray-100 rounded text-gray-400 hover:text-gray-600 transition-colors mr-2"
+                                aria-label="Close"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                            
                             {/* Custom Prompt Input */}
                             <div className="relative w-48">
                                 <input
@@ -261,41 +258,36 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
                                         onReplace={onAccept}
                                     />
 
-                                    <div className="flex items-center justify-between pt-2">
-                                        <div className="flex items-center gap-2">
-                                            {customPrompt && (
-                                                <button
-                                                    onClick={handleSendToCopilot}
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                                                >
-                                                    <MessageSquarePlus className="w-3.5 h-3.5" />
-                                                    Send to Copilot
-                                                </button>
-                                            )}
-                                            {!customPrompt && (
-                                                <button
-                                                    onClick={() => onSendToCopilot?.(`Why did you suggest this change: "${suggestion}"?`)}
-                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                                                >
-                                                    <MessageSquarePlus className="w-3.5 h-3.5" />
-                                                    Ask Copilot
-                                                </button>
-                                            )}
-                                        </div>
-
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                onClick={onClose}
-                                                className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                                            >
-                                                Discard
-                                            </button>
+                                    <div className="space-y-2 pt-3 border-t border-gray-100">
+                                        <div className="flex items-center justify-end gap-2">
                                             <button
                                                 onClick={() => onAccept(suggestion)}
                                                 className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium bg-[#6C2BD9] text-white hover:bg-[#5A27C2] rounded-lg shadow-sm shadow-[#6C2BD9]/20 transition-all"
                                             >
                                                 <Check className="w-3.5 h-3.5" />
                                                 Accept Change
+                                            </button>
+                                            <button
+                                                onClick={onClose}
+                                                className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                                            >
+                                                Discard
+                                            </button>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-xs">
+                                            <button
+                                                onClick={onClose}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+                                            >
+                                                <X className="w-3 h-3" />
+                                                Ignore
+                                            </button>
+                                            <button
+                                                onClick={onClose}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+                                            >
+                                                <BookOpen className="w-3 h-3" />
+                                                Add to Dictionary
                                             </button>
                                         </div>
                                     </div>

@@ -40,10 +40,10 @@ export const GrammarToneExtension = Extension.create({
                         issues.forEach(issue => {
                             if (issue.from >= 0 && issue.to <= doc.content.size) {
                                 const color =
-                                    issue.type === 'grammar' ? '#EF4444' : // red
-                                        issue.type === 'clarity' ? '#3B82F6' : // blue
-                                            issue.type === 'tone' ? '#EAB308' : // yellow
-                                                '#6C2BD9' // purple for AI
+                                    issue.type === 'grammar' ? '#EF4444' : // red - grammar
+                                        issue.type === 'tone' ? '#EAB308' : // yellow - tone
+                                            issue.type === 'clarity' ? '#3B82F6' : // blue - clarity
+                                                '#6C2BD9' // purple - style/AI
 
                                 const decoration = Decoration.inline(
                                     issue.from,

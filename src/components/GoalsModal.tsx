@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
-import { X, Target, Briefcase, GraduationCap, Users, Sparkles, Zap, BookOpen, MessageCircle } from 'lucide-react'
+import { X, Target, Briefcase, GraduationCap, Users, Sparkles, Zap, BookOpen, MessageCircle, FileText, Presentation, PenTool, TrendingUp, GraduationCap as AcademicIcon } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 export type Goals = {
     audience: 'general' | 'expert' | 'student'
     formality: 'casual' | 'neutral' | 'formal'
-    domain: 'general' | 'academic' | 'business' | 'creative'
+    domain: 'general' | 'academic' | 'business' | 'creative' | 'blog' | 'resume'
+    intent?: 'inform' | 'persuade' | 'entertain' | 'educate'
 }
 
 interface GoalsModalProps {
@@ -72,6 +73,8 @@ export default function GoalsModal({ isOpen, onClose, initialGoals, onSave }: Go
                                 { id: 'business', label: 'Business', icon: Briefcase, desc: 'Professional & clear' },
                                 { id: 'academic', label: 'Academic', icon: GraduationCap, desc: 'Scholarly & precise' },
                                 { id: 'creative', label: 'Creative', icon: Sparkles, desc: 'Expressive & engaging' },
+                                { id: 'blog', label: 'Blog', icon: FileText, desc: 'Engaging & conversational' },
+                                { id: 'resume', label: 'Resume', icon: Presentation, desc: 'Concise & impactful' },
                             ].map((option) => (
                                 <button
                                     key={option.id}
@@ -162,6 +165,46 @@ export default function GoalsModal({ isOpen, onClose, initialGoals, onSave }: Go
                             </div>
                         </section>
                     </div>
+
+                    {/* Intent Section */}
+                    <section className="space-y-4">
+                        <label className="text-sm font-semibold text-gray-900 uppercase tracking-wider flex items-center gap-2">
+                            <PenTool className="w-4 h-4 text-gray-400" />
+                            Writing Intent
+                        </label>
+                        <div className="grid grid-cols-4 gap-3">
+                            {[
+                                { id: 'inform', label: 'Inform', icon: BookOpen, desc: 'Share information' },
+                                { id: 'persuade', label: 'Persuade', icon: TrendingUp, desc: 'Convince reader' },
+                                { id: 'entertain', label: 'Entertain', icon: Sparkles, desc: 'Engage & delight' },
+                                { id: 'educate', label: 'Educate', icon: AcademicIcon, desc: 'Teach concepts' },
+                            ].map((option) => (
+                                <button
+                                    key={option.id}
+                                    onClick={() => setGoals({ ...goals, intent: option.id as Goals['intent'] })}
+                                    className={cn(
+                                        "flex flex-col items-center gap-2 p-4 rounded-xl border-2 text-center transition-all duration-200 hover:shadow-md",
+                                        goals.intent === option.id
+                                            ? "border-[#6C2BD9] bg-[#6C2BD9]/5 ring-1 ring-[#6C2BD9]/20"
+                                            : "border-gray-100 hover:border-[#6C2BD9]/30 hover:bg-gray-50"
+                                    )}
+                                >
+                                    <div className={cn(
+                                        "p-2 rounded-lg",
+                                        goals.intent === option.id ? "bg-[#6C2BD9] text-white" : "bg-gray-100 text-gray-500"
+                                    )}>
+                                        <option.icon className="w-5 h-5" />
+                                    </div>
+                                    <div>
+                                        <div className={cn("font-semibold text-sm", goals.intent === option.id ? "text-[#6C2BD9]" : "text-gray-900")}>
+                                            {option.label}
+                                        </div>
+                                        <div className="text-xs text-gray-500 mt-0.5">{option.desc}</div>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    </section>
                 </div>
 
                 {/* Footer */}

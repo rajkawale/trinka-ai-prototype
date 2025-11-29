@@ -1,8 +1,10 @@
-import { useState, useRef, useEffect } from 'react'
-import { Send, User, ChevronLeft, X, ThumbsUp, ThumbsDown, Copy, RotateCcw, Upload, Mic, Plus, FileText, Sparkles, Type, ChevronDown, EyeOff } from 'lucide-react'
+import { useState, useRef, useEffect, useMemo } from 'react'
+import { Send, User, ChevronRight, X, ThumbsUp, ThumbsDown, Copy, RotateCcw, Plus, Mic, FileText, Sparkles, Type, ChevronDown, EyeOff, Loader2, Check } from 'lucide-react'
 import { cn } from '../lib/utils'
 import RecommendationCard from './RecommendationCard'
 import type { Recommendation } from './RecommendationCard'
+import { groupRecommendations, getTopRecommendations, type RecommendationGroupType } from '../utils/groupRecommendations'
+import AllSuggestionsModal from './AllSuggestionsModal'
 
 interface Message {
     id: string
@@ -49,7 +51,7 @@ const Copilot = ({
     isCompact,
     onToggleCompact,
     hasSelection: _hasSelection,
-    onClose,
+    onClose: _onClose,
     defaultShowRecommendations = true,
     isPrivacyMode = false,
     initialQuery = '',
@@ -72,16 +74,29 @@ const Copilot = ({
     const [messages, setMessages] = useState<Message[]>([])
     const [input, setInput] = useState(initialQuery || initialMessage || '')
 
+    // Store onMessageHandled in a ref to avoid dependency issues
+    const onMessageHandledRef = useRef(onMessageHandled)
+    useEffect(() => {
+        console.log('[Copilot] onMessageHandledRef updated', { hasCallback: !!onMessageHandled })
+        onMessageHandledRef.current = onMessageHandled
+    }, [onMessageHandled])
+
     // Update input when initialQuery or initialMessage changes
     useEffect(() => {
+        console.log('[Copilot] useEffect for input update triggered', { initialMessage, initialQuery })
         if (initialMessage) {
+            console.log('[Copilot] Setting input from initialMessage:', initialMessage)
             setInput(initialMessage)
             // Optional: Auto-send if it's a direct command
-            if (onMessageHandled) onMessageHandled()
+            if (onMessageHandledRef.current) {
+                console.log('[Copilot] Calling onMessageHandledRef.current()')
+                onMessageHandledRef.current()
+            }
         } else if (initialQuery) {
+            console.log('[Copilot] Setting input from initialQuery:', initialQuery)
             setInput(initialQuery)
         }
-    }, [initialQuery, initialMessage, onMessageHandled])
+    }, [initialQuery, initialMessage])
 
     const [isLoading, setIsLoading] = useState(false)
     const [status, setStatus] = useState<'idle' | 'streaming'>('idle')
@@ -91,7 +106,41 @@ const Copilot = ({
     const [selectedTone, setSelectedTone] = useState('Standard')
     const [showModelSelector, setShowModelSelector] = useState(false)
     const [showToneSelector, setShowToneSelector] = useState(false)
-    const [recommendations, setRecommendations] = useState<Recommendation[]>([])
+    const [recommendations, setRecommendations] = useState<Recommendation[]>(defaultShowRecommendations ? MOCK_RECOMMENDATIONS : [])
+    const [expandedGroups, setExpandedGroups] = useState<Set<RecommendationGroupType>>(new Set())
+    const [showAllSuggestionsModal, setShowAllSuggestionsModal] = useState(false)
+    
+    // Get top 3 recommendations
+    const topRecommendations = useMemo(() => getTopRecommendations(recommendations, 3), [recommendations])
+    
+    // Get top recommendation IDs to exclude from grouped view
+    const topRecommendationIds = useMemo(() => 
+        new Set(topRecommendations.map(r => r.id)), 
+        [topRecommendations]
+    )
+    
+    // Group remaining recommendations (excluding top 3)
+    const remainingRecommendations = useMemo(() => 
+        recommendations.filter(r => !topRecommendationIds.has(r.id)),
+        [recommendations, topRecommendationIds]
+    )
+    
+    const groupedRecommendations = useMemo(() => 
+        groupRecommendations(remainingRecommendations), 
+        [remainingRecommendations]
+    )
+    
+    const toggleGroup = (groupType: RecommendationGroupType) => {
+        setExpandedGroups(prev => {
+            const next = new Set(prev)
+            if (next.has(groupType)) {
+                next.delete(groupType)
+            } else {
+                next.add(groupType)
+            }
+            return next
+        })
+    }
 
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
@@ -166,6 +215,9 @@ const Copilot = ({
         setUploadedFiles(prev => [...prev, ...newFiles])
     }
 
+    const [applyingBatch, setApplyingBatch] = useState<string | null>(null)
+    const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null)
+
     const handleRecommendationApply = (id: string, text: string) => {
         // In a real app, this would apply to the editor
         console.log('Applying recommendation:', id, text)
@@ -176,6 +228,47 @@ const Copilot = ({
             id: Date.now().toString(),
             role: 'assistant',
             content: `Applied change: "${text}"`
+        }])
+        
+        // If using onInsertText, apply to editor
+        if (onInsertText) {
+            onInsertText(text)
+        }
+    }
+
+    const handleBatchApply = async (groupType: RecommendationGroupType) => {
+        const group = groupedRecommendations.find(g => g.type === groupType)
+        if (!group || group.recommendations.length === 0) return
+
+        setApplyingBatch(groupType)
+        setBatchProgress({ current: 0, total: group.recommendations.length })
+
+        // Apply recommendations one by one with a small delay
+        for (let i = 0; i < group.recommendations.length; i++) {
+            const rec = group.recommendations[i]
+            const text = rec.replacementText || rec.fullText
+            
+            // Apply each recommendation
+            handleRecommendationApply(rec.id, text)
+            
+            // Update progress
+            setBatchProgress({ current: i + 1, total: group.recommendations.length })
+            
+            // Small delay between applications for smooth UX
+            if (i < group.recommendations.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 200))
+            }
+        }
+
+        // Complete
+        setBatchProgress(null)
+        setApplyingBatch(null)
+        
+        // Show completion message
+        setMessages(prev => [...prev, {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: `Applied all ${group.recommendations.length} ${groupType.toLowerCase()} suggestions.`
         }])
     }
 
@@ -188,20 +281,17 @@ const Copilot = ({
             "flex flex-col h-full bg-white relative",
             isCompact ? "p-2" : "p-0"
         )}>
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
+            {/* Header - Sticky */}
+            <div className="sticky top-0 z-10 bg-white flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
                 <div className="flex items-center gap-2">
                     <div className="w-8 h-8 bg-gradient-to-br from-[#6C2BD9] to-[#8B5CF6] rounded-lg flex items-center justify-center shadow-sm">
                         <Sparkles className="w-4 h-4 text-white" />
                     </div>
                     <div>
-                        <h2 className="font-semibold text-gray-800 text-sm">Trinka Copilot</h2>
-                        <div className="flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-                            <span className="text-[10px] text-gray-500 font-medium">
-                                {status === 'streaming' ? 'Thinking...' : 'Online'}
-                            </span>
-                        </div>
+                        <h2 className="font-semibold text-gray-800 text-sm">Trinka AI</h2>
+                        {status === 'streaming' && (
+                            <span className="text-[10px] text-gray-500 font-medium">Thinking...</span>
+                        )}
                     </div>
                 </div>
                 <div className="flex items-center gap-1">
@@ -211,23 +301,21 @@ const Copilot = ({
                             <span>Private</span>
                         </div>
                     )}
-                    <button
-                        onClick={onToggleCompact}
-                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                    >
-                        {isCompact ? <ChevronLeft className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4 rotate-180" />}
-                    </button>
-                    <button
-                        onClick={onClose}
-                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                    >
-                        <X className="w-4 h-4" />
-                    </button>
+                    {onToggleCompact && (
+                        <button
+                            onClick={onToggleCompact}
+                            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                            title="Collapse"
+                            aria-label="Collapse Trinka AI"
+                        >
+                            <ChevronRight className="w-4 h-4" />
+                        </button>
+                    )}
                 </div>
             </div>
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-6 scroll-smooth">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth">
                 {/* Welcome State */}
                 {messages.length === 0 && recommendations.length === 0 && (
                     <div className="text-center py-8 space-y-4">
@@ -252,21 +340,134 @@ const Copilot = ({
                     </div>
                 )}
 
-                {/* Recommendations Stream */}
+                {/* Top Suggestions Button - Opens in Center Modal */}
                 {recommendations.length > 0 && (
+                    <div className="mb-4 pb-4 border-b border-gray-100">
+                        <button
+                            onClick={() => setShowAllSuggestionsModal(true)}
+                            className="w-full flex items-center justify-between px-4 py-3 bg-gradient-to-r from-[#6C2BD9]/10 to-[#8B5CF6]/10 hover:from-[#6C2BD9]/20 hover:to-[#8B5CF6]/20 rounded-lg border border-[#6C2BD9]/20 transition-all group"
+                        >
+                            <div className="flex items-center gap-2">
+                                <Sparkles className="w-4 h-4 text-[#6C2BD9]" />
+                                <span className="text-sm font-semibold text-gray-900">
+                                    Top Suggestions ({recommendations.length})
+                                </span>
+                            </div>
+                            <span className="text-xs font-medium text-[#6C2BD9] group-hover:text-[#5A27C2] transition-colors">
+                                See More →
+                            </span>
+                        </button>
+                    </div>
+                )}
+
+                {/* Grouped Recommendations */}
+                {groupedRecommendations.length > 0 && (
                     <div className="space-y-3">
-                        <div className="flex items-center gap-2 text-xs font-medium text-gray-500 uppercase tracking-wider px-1">
-                            <Sparkles className="w-3 h-3" />
-                            Suggested Improvements
+                        <div className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wider px-1 mb-2">
+                            <Sparkles className="w-3 h-3 text-[#6C2BD9]" />
+                            All Suggestions by Category
                         </div>
-                        {recommendations.map(rec => (
-                            <RecommendationCard
-                                key={rec.id}
-                                recommendation={rec}
-                                onApply={(id, text) => handleRecommendationApply(id, text)}
-                                onDismiss={handleRecommendationDismiss}
-                            />
-                        ))}
+                        {groupedRecommendations.map(group => {
+                            const isExpanded = expandedGroups.has(group.type)
+                            const displayRecs = isExpanded ? group.recommendations : group.recommendations.slice(0, 1)
+                            const hasMore = group.recommendations.length > 1
+
+                            return (
+                                <div key={group.type} className="space-y-2 pb-3 border-b border-gray-100 last:border-b-0">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <button
+                                            onClick={() => toggleGroup(group.type)}
+                                            className="flex-1 flex items-center justify-between px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 rounded-lg transition-colors group"
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <span>{group.type}</span>
+                                                <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                                                    {group.count}
+                                                </span>
+                                            </div>
+                                            {hasMore && (
+                                                <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? '' : '-rotate-90'}`} />
+                                            )}
+                                        </button>
+                                        
+                                        {/* Batch Apply Button */}
+                                        {group.count > 1 && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    handleBatchApply(group.type)
+                                                }}
+                                                disabled={applyingBatch === group.type}
+                                                className={cn(
+                                                    "px-3 py-2 text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5",
+                                                    applyingBatch === group.type
+                                                        ? "bg-[#6C2BD9]/20 text-[#6C2BD9] cursor-not-allowed"
+                                                        : "bg-[#6C2BD9] text-white hover:bg-[#5A27C2]"
+                                                )}
+                                            >
+                                                {applyingBatch === group.type ? (
+                                                    <>
+                                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                                        {batchProgress && (
+                                                            <span>{batchProgress.current}/{batchProgress.total}</span>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Check className="w-3 h-3" />
+                                                        Apply All ({group.count})
+                                                    </>
+                                                )}
+                                            </button>
+                                        )}
+                                        {group.count > 1 && (
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    // Ignore all recommendations of this type
+                                                    const idsToIgnore = group.recommendations.map(r => r.id)
+                                                    setRecommendations(prev => prev.filter(r => !idsToIgnore.includes(r.id)))
+                                                }}
+                                                className="px-3 py-2 text-xs font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+                                                title={`Ignore all ${group.type.toLowerCase()} suggestions`}
+                                            >
+                                                Ignore All
+                                            </button>
+                                        )}
+                                    </div>
+                                    
+                                    {/* Progress Bar */}
+                                    {applyingBatch === group.type && batchProgress && (
+                                        <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                                            <div
+                                                className="bg-[#6C2BD9] h-full transition-all duration-300 ease-out"
+                                                style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }}
+                                            />
+                                        </div>
+                                    )}
+                                    
+                                    <div className="space-y-2 pl-1">
+                                        {displayRecs.map(rec => (
+                                            <RecommendationCard
+                                                key={rec.id}
+                                                recommendation={rec}
+                                                onApply={(id, text) => handleRecommendationApply(id, text)}
+                                                onDismiss={handleRecommendationDismiss}
+                                            />
+                                        ))}
+                                        
+                                        {!isExpanded && hasMore && (
+                                            <button
+                                                onClick={() => toggleGroup(group.type)}
+                                                className="w-full text-xs text-[#6C2BD9] font-medium hover:text-[#5A27C2] px-3 py-2 hover:bg-[#6C2BD9]/5 rounded-lg transition-colors"
+                                            >
+                                                View all {group.count} {group.type.toLowerCase()} suggestions →
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            )
+                        })}
                     </div>
                 )}
 
@@ -374,65 +575,6 @@ const Copilot = ({
 
             {/* Input Area */}
             <div className="p-4 bg-white border-t border-gray-100">
-                {/* Toolbar */}
-                <div className="flex items-center gap-2 mb-2">
-                    <div className="relative">
-                        <button
-                            onClick={() => setShowModelSelector(!showModelSelector)}
-                            className="flex items-center gap-1.5 px-2 py-1 hover:bg-gray-100 rounded-lg text-xs font-medium text-gray-600 transition-colors"
-                        >
-                            <Sparkles className="w-3 h-3 text-[#6C2BD9]" />
-                            {selectedModel}
-                            <ChevronDown className="w-3 h-3 opacity-50" />
-                        </button>
-                        {showModelSelector && (
-                            <div className="absolute bottom-full left-0 mb-2 w-32 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10">
-                                {['GPT-4', 'Claude 3', 'Trinka Pro'].map(model => (
-                                    <button
-                                        key={model}
-                                        onClick={() => {
-                                            setSelectedModel(model)
-                                            setShowModelSelector(false)
-                                        }}
-                                        className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
-                                    >
-                                        {model}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="h-3 w-px bg-gray-200" />
-
-                    <div className="relative">
-                        <button
-                            onClick={() => setShowToneSelector(!showToneSelector)}
-                            className="flex items-center gap-1.5 px-2 py-1 hover:bg-gray-100 rounded-lg text-xs font-medium text-gray-600 transition-colors"
-                        >
-                            <Type className="w-3 h-3 text-gray-500" />
-                            {selectedTone}
-                            <ChevronDown className="w-3 h-3 opacity-50" />
-                        </button>
-                        {showToneSelector && (
-                            <div className="absolute bottom-full left-0 mb-2 w-32 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10">
-                                {['Standard', 'Academic', 'Creative', 'Professional'].map(tone => (
-                                    <button
-                                        key={tone}
-                                        onClick={() => {
-                                            setSelectedTone(tone)
-                                            setShowToneSelector(false)
-                                        }}
-                                        className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
-                                    >
-                                        {tone}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </div>
-
                 {/* File Upload Preview */}
                 {uploadedFiles.length > 0 && (
                     <div className="flex flex-wrap gap-2 mb-2">
@@ -451,13 +593,13 @@ const Copilot = ({
                     </div>
                 )}
 
-                <div className="relative flex items-end gap-2 bg-gray-50 border border-gray-200 rounded-xl p-2 focus-within:ring-2 focus-within:ring-[#6C2BD9]/20 focus-within:border-[#6C2BD9] transition-all">
+                <div className="relative flex items-end gap-2 bg-white border border-gray-200 rounded-xl p-2 shadow-sm focus-within:ring-2 focus-within:ring-[#6C2BD9]/20 focus-within:border-[#6C2BD9] transition-all">
                     <button
                         onClick={() => fileInputRef.current?.click()}
                         className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-200/50 rounded-lg transition-colors"
                         title="Attach file"
                     >
-                        <Upload className="w-5 h-5" />
+                        <Plus className="w-5 h-5" />
                     </button>
                     <input
                         type="file"
@@ -496,10 +638,83 @@ const Copilot = ({
                         </button>
                     )}
                 </div>
-                <div className="text-center mt-2">
-                    <p className="text-[10px] text-gray-400">AI can make mistakes. Please review generated content.</p>
+
+                {/* Model, Tone, Style Selectors - Below Chat Bar */}
+                <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-gray-100">
+                    <div className="flex items-center justify-center gap-2">
+                        <div className="relative">
+                            <button
+                                onClick={() => setShowModelSelector(!showModelSelector)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 rounded-md text-xs font-medium text-gray-600 transition-colors whitespace-nowrap"
+                            >
+                                <Sparkles className="w-3 h-3" />
+                                {selectedModel}
+                                <ChevronDown className="w-3 h-3 opacity-50" />
+                            </button>
+                            {showModelSelector && (
+                                <div className="absolute bottom-full left-0 mb-2 w-32 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10">
+                                    {['GPT-4', 'Claude 3', 'Trinka Pro'].map(model => (
+                                        <button
+                                            key={model}
+                                            onClick={() => {
+                                                setSelectedModel(model)
+                                                setShowModelSelector(false)
+                                            }}
+                                            className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                                        >
+                                            {model}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="h-3 w-px bg-gray-200" />
+
+                        <div className="relative">
+                            <button
+                                onClick={() => setShowToneSelector(!showToneSelector)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 hover:bg-gray-100 rounded-md text-xs font-medium text-gray-600 transition-colors whitespace-nowrap"
+                            >
+                                <Type className="w-3 h-3 text-gray-500" />
+                                {selectedTone}
+                                <ChevronDown className="w-3 h-3 opacity-50" />
+                            </button>
+                            {showToneSelector && (
+                                <div className="absolute bottom-full left-0 mb-2 w-32 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10">
+                                    {['Standard', 'Academic', 'Creative', 'Professional'].map(tone => (
+                                        <button
+                                            key={tone}
+                                            onClick={() => {
+                                                setSelectedTone(tone)
+                                                setShowToneSelector(false)
+                                            }}
+                                            className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
+                                        >
+                                            {tone}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    <p className="text-[10px] text-gray-400 opacity-70 text-center">AI can make mistakes. Please review generated content.</p>
                 </div>
             </div>
+
+            {/* All Suggestions Modal */}
+            <AllSuggestionsModal
+                isOpen={showAllSuggestionsModal}
+                onClose={() => setShowAllSuggestionsModal(false)}
+                recommendations={recommendations}
+                onApply={handleRecommendationApply}
+                onIgnore={handleRecommendationDismiss}
+                onAddToDictionary={(id) => {
+                    // Add to dictionary functionality
+                    console.log('Added to dictionary:', id)
+                    setRecommendations(prev => prev.filter(r => r.id !== id))
+                }}
+            />
         </div>
     )
 }

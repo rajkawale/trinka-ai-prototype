@@ -70,7 +70,159 @@ Complete implementation plan for Trinka AI Writing Assistant Prototype based on 
 
 ---
 
-## 🎨 Phase P1 - Branding & UX Polish
+## 🎨 Phase P0.5 - Critical UX Refinements (IMMEDIATE)
+
+### Task Group: UI Flow & Interaction Improvements
+
+#### 7. Remove Duplicate "Ask Copilot" CTAs ⚠️
+- **Status**: ✅ Completed
+- **Issue**: Two separate CTAs prompting "Ask Copilot" creates confusion
+- **Solution**: 
+  - Remove "Ask Copilot" from SuggestionPopup (keep only FAB)
+  - Keep FAB as primary Copilot entry point
+  - Remove secondary CTA completely
+- **Files to modify**: `src/editor/components/SuggestionPopup.tsx`
+- **Time**: 1 hour
+- **Branch**: `fix/remove-duplicate-copilot-cta`
+
+#### 8. Show "Accept" First Instead of "Discard"
+- **Status**: ✅ Completed
+- **Issue**: Permission popup shows less important actions first
+- **Solution**: 
+  - Make "Accept Change" primary action (left/right first)
+  - Place "Discard" as secondary action (right/left last)
+  - Visual hierarchy: primary button larger, secondary muted
+- **Files to modify**: `src/editor/components/SuggestionPopup.tsx`
+- **Time**: 0.5 hours
+- **Branch**: `fix/action-button-order`
+
+#### 9. Add Redo Button Next to Undo
+- **Status**: ✅ Completed
+- **Issue**: Only Undo option present, reduces editing control
+- **Solution**: 
+  - Add Redo button next to Undo in toolbar
+  - Use Ctrl+Y / Ctrl+Shift+Z keyboard shortcut
+  - Icon: Redo2 from lucide-react
+- **Files to modify**: `src/components/Editor.tsx`
+- **Time**: 0.5 hours
+- **Branch**: `feat/add-redo-button`
+
+#### 10. Fix Score Panel Position Behavior
+- **Status**: ⏳ Pending
+- **Issue**: Clicking score on right opens panel on left, creating friction
+- **Solution**: 
+  - Open panel on same side where score is clicked
+  - OR: Make score card floating that expands smoothly
+  - Consider: Floating card that expands without layout shift
+- **Files to modify**: `src/components/WritingQualityPanel.tsx`, `src/App.tsx`
+- **Time**: 2 hours
+- **Branch**: `fix/score-panel-positioning`
+
+#### 11. Clean Up Copilot Pane Controls
+- **Status**: ✅ Completed
+- **Issue**: Copilot panel shows two close icons (× and <)
+- **Solution**: 
+  - Keep only "<" as back/collapse button (more intuitive)
+  - Remove "×" close button
+  - Ensure consistent interaction patterns
+- **Files to modify**: `src/components/Copilot.tsx`
+- **Time**: 0.5 hours
+- **Branch**: `fix/copilot-controls`
+
+---
+
+## 🎨 Phase P1 - UX Enhancements & Polish
+
+### Task Group: Advanced UI Features
+
+#### 12. Inline Suggestion Indicators (Hover Trigger)
+- **Status**: ⏳ Pending
+- **Issue**: Content editor doesn't highlight grammar/tone/paraphrase suggestions inline
+- **Solution**: 
+  - Add subtle underlines (colored by issue type: grammar=red, tone=amber, paraphrase=blue)
+  - Show tooltip on hover explaining issue ("Grammar error", "Tone improvement", etc.)
+  - One-tap "Apply" option inside tooltip
+  - Use Tiptap decorations API for inline marks
+- **Time**: 6 hours
+- **Branch**: `feat/inline-suggestion-indicators`
+
+#### 13. Surface Top Suggestions at Top of Panel
+- **Status**: ⏳ Pending
+- **Issue**: Users can't quickly see most important improvements
+- **Solution**: 
+  - Highlight top 3 suggestions at top of right Copilot panel
+  - Group suggestions by type: Paraphrasing, Grammar, Clarity, Tone, Structure
+  - Each group has "View all changes" button
+  - Prioritize by impact (high → low)
+- **Files to modify**: `src/components/Copilot.tsx`, `src/components/RecommendationCard.tsx`
+- **Time**: 4 hours
+- **Branch**: `feat/top-suggestions-grouping`
+
+#### 14. Improve Copilot Chat Opening Animation
+- **Status**: ⏳ Pending
+- **Issue**: FAB opening style feels broken and unintuitive
+- **Solution**: 
+  - Use standard slide-in from right animation (like Intercom, Notion AI, Grammarly)
+  - Panel expands fluidly without jumping or layout shift
+  - Smooth transition with proper easing (ease-out)
+  - Ensure no content flash during animation
+- **Files to modify**: `src/components/Copilot.tsx`, `src/components/CopilotFab.tsx`
+- **Time**: 2 hours
+- **Branch**: `fix/copilot-animation`
+
+#### 15. Fix Profile Menu Functionality
+- **Status**: ⏳ Pending
+- **Issue**: Profile icon is non-functional
+- **Solution**: 
+  - Add dropdown menu with options:
+    - Edit Profile
+    - Preferences
+    - Writing Goals (link to Goals modal)
+    - Subscription
+    - Log Out
+  - Use dropdown component (HeadlessUI or custom)
+  - Position relative to profile icon
+- **Files to modify**: `src/App.tsx`, create `src/components/ProfileMenu.tsx`
+- **Time**: 2 hours
+- **Branch**: `feat/profile-menu`
+
+#### 16. Add Keyboard Shortcuts
+- **Status**: ⏳ Pending
+- **Task**: Essential shortcuts for power users
+- **Shortcuts to implement**:
+  - `Ctrl+K` (Cmd+K on Mac): Open Copilot
+  - `Ctrl+Shift+R`: Rephrase selected text
+  - `Ctrl+Shift+G`: Show grammar fixes
+  - `Ctrl+Z` / `Ctrl+Y`: Undo/Redo (native, ensure working)
+  - `Esc`: Close active popup/modal
+- **Files to modify**: `src/components/Editor.tsx`, `src/App.tsx`, create `src/hooks/useKeyboardShortcuts.ts`
+- **Time**: 3 hours
+- **Branch**: `feat/keyboard-shortcuts`
+
+#### 17. Allow Quick Apply of All Suggestions
+- **Status**: ⏳ Pending
+- **Task**: Streamline usage with bulk actions
+- **Solution**: 
+  - Add "Apply All Grammar Fixes" button in Copilot
+  - Add "Apply All Tone Fixes" button
+  - Show count of fixes to be applied
+  - Batch process with progress indicator
+  - Allow undo of batch operations
+- **Files to modify**: `src/components/Copilot.tsx`
+- **Time**: 4 hours
+- **Branch**: `feat/bulk-apply-suggestions`
+
+#### 18. Keep Score Card Floating (Optional Enhancement)
+- **Status**: ⏳ Pending
+- **Task**: Better UX with floating card
+- **Solution**: 
+  - Convert score panel to floating card that expands on click
+  - Reduces layout shift
+  - Smooth expand/collapse animation
+  - Position: top-right, expands left
+- **Files to modify**: `src/components/WritingQualityPanel.tsx`
+- **Time**: 3 hours
+- **Branch**: `feat/floating-score-card`
 
 ### Task Group: Trinka Branding Integration
 
@@ -83,7 +235,7 @@ Complete implementation plan for Trinka AI Writing Assistant Prototype based on 
 - **Time**: 3 hours
 - **Branch**: `feat/trinka-branding`
 
-#### 7. Update All UI Components with Brand Colors
+#### 20. Update All UI Components with Brand Colors
 - **Components to update**:
   - SuggestionPopup (already done ✓)
   - WritingQualityPanel
