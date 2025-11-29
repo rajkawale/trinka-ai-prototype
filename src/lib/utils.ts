@@ -15,3 +15,5 @@ export function getTrinkaApi(path: string) {
     if (!path.startsWith('/')) path = `/${path}`
     return `${TRINKA_API_BASE}${path}`
 }
+
+export const trinkaApi = getTrinkaApi
