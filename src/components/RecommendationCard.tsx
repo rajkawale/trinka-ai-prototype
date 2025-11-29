@@ -20,8 +20,8 @@ export interface Recommendation {
 
 interface RecommendationCardProps {
     recommendation: Recommendation
-    docId: string
-    onApply?: (recommendationId: string) => void
+    docId?: string
+    onApply?: (recommendationId: string, text: string) => void
     onDismiss?: (recommendationId: string) => void
     onChat?: (text: string) => void
 }

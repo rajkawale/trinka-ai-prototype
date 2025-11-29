@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Send, User, ChevronLeft, X, ThumbsUp, ThumbsDown, Copy, RotateCcw, Upload, Mic, Plus, FileText, Sparkles, Type, ChevronDown, EyeOff } from 'lucide-react'
-import { cn, getTrinkaApi } from '../lib/utils'
+import { cn } from '../lib/utils'
 import RecommendationCard from './RecommendationCard'
 import type { Recommendation } from './RecommendationCard'
 
@@ -50,7 +50,6 @@ const Copilot = ({
     onToggleCompact,
     hasSelection: _hasSelection,
     onClose,
-    docId = 'default-doc',
     defaultShowRecommendations = true,
     isPrivacyMode = false,
     initialQuery = '',
@@ -87,9 +86,6 @@ const Copilot = ({
     const [isLoading, setIsLoading] = useState(false)
     const [status, setStatus] = useState<'idle' | 'streaming'>('idle')
     const [clarifyingQuestion, setClarifyingQuestion] = useState<string | null>(null)
-    const [streamingProgress, setStreamingProgress] = useState(0)
-    const [_actionHistory, setActionHistory] = useState<Array<{ id: string; action: string; timestamp: string }>>([])
-    const [showUploadModal, setShowUploadModal] = useState(false)
     const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
     const [selectedModel, setSelectedModel] = useState('GPT-4')
     const [selectedTone, setSelectedTone] = useState('Standard')
@@ -130,7 +126,6 @@ const Copilot = ({
         setUploadedFiles([])
         setIsLoading(true)
         setStatus('streaming')
-        setStreamingProgress(0)
 
         // Simulate streaming response
         try {
@@ -149,7 +144,6 @@ const Copilot = ({
                 await new Promise(resolve => setTimeout(resolve, 15)) // Typing effect
                 responseContent += chars[i]
                 setMessages(prev => prev.map(m => m.id === responseId ? { ...m, content: responseContent } : m))
-                setStreamingProgress(Math.round((i / chars.length) * 100))
             }
 
             setStatus('idle')

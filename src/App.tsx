@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Editor, { type EditorRef } from './components/Editor'
 import Copilot from './components/Copilot'
-import { Menu, History, RotateCcw, Eye, X, User as UserIcon, Settings, MessageSquare, HelpCircle, Copy } from 'lucide-react'
+import { Menu, History, RotateCcw, Eye, X, User as UserIcon, Copy } from 'lucide-react'
 import { cn, trinkaApi } from './lib/utils'
 import ScorePill from './components/ScorePill'
 import CopilotFab from './components/CopilotFab'
@@ -27,9 +27,6 @@ function App() {
     return localStorage.getItem('trinka-document-title') || 'Untitled document'
   })
 
-  const menuRef = useRef<HTMLDivElement>(null)
-  const userMenuRef = useRef<HTMLDivElement>(null)
-  const profileMenuRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<EditorRef>(null)
 
   const handleInsertText = (text: string) => {
@@ -76,19 +73,6 @@ function App() {
       author: 'You'
     }
   ]
-
-  const fetchVersionHistory = async () => {
-    try {
-      // @ts-ignore
-      const response = await fetch(trinkaApi('/versions?limit=5'))
-      if (!response.ok) throw new Error('API unavailable')
-      const data = await response.json()
-      setVersionHistory(data.snapshots || [])
-    } catch (error) {
-      console.log('Using mock version history')
-      setVersionHistory(MOCK_VERSION_HISTORY)
-    }
-  }
 
   const handleRestoreVersion = (id: string) => {
     console.log('Restore version:', id)

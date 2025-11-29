@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { MoreHorizontal, Loader2, Sparkles, ArrowRight, ChevronDown, Check, X, MessageSquarePlus } from 'lucide-react'
+import { Loader2, Sparkles, ChevronDown, Check, MessageSquarePlus } from 'lucide-react'
 import { Portal } from '../../components/Portal'
 import { DiffView } from './DiffView'
 import { cn } from '../../lib/utils'
@@ -210,100 +210,70 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
                                 </div>
                             </div>
 
-                            <div className="w-px h-5 bg-gray-200 mx-2" />
+                            <div className="flex-1" />
 
-                            <div className="flex-1 flex items-center gap-2">
+                            {/* Custom Prompt Input */}
+                            <div className="relative w-48">
                                 <input
-                                    type="text"
-                                    placeholder="Enter your own..."
                                     value={customPrompt}
                                     onChange={(e) => setCustomPrompt(e.target.value)}
                                     onKeyDown={handleCustomSubmit}
-                                    className="flex-1 bg-transparent border-none text-[13px] text-gray-900 placeholder-gray-400 focus:ring-0 focus:outline-none"
+                                    placeholder="Ask AI to..."
+                                    className="w-full px-3 py-1.5 text-[13px] bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#6F4FF0]/20 focus:border-[#6F4FF0] transition-all"
                                 />
-                                {customPrompt && (
-                                    <button
-                                        onClick={() => onSendToCopilot?.(customPrompt)}
-                                        className="text-[11px] text-[#6F4FF0] hover:text-[#5B3FD9] font-medium flex items-center gap-1 whitespace-nowrap px-2 py-1 rounded-md hover:bg-[#6F4FF0]/5 transition-colors"
-                                    >
-                                        Send to Copilot <MessageSquarePlus className="w-3 h-3" />
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Body */}
-                        <div className="p-5 min-h-[120px]">
-                            <div className="flex items-center gap-2 mb-3">
-                                <span className="text-[11px] font-bold text-[#6F4FF0] uppercase tracking-wider bg-[#6F4FF0]/10 px-2 py-0.5 rounded-full">
-                                    AI Suggestion — {customPrompt ? 'Custom' : activeTab}
-                                </span>
-                            </div>
-
-                            <div className="relative">
-                                {status === 'loading' ? (
-                                    <div className="space-y-2 animate-pulse">
-                                        <div className="h-4 bg-gray-100 rounded w-3/4" />
-                                        <div className="h-4 bg-gray-100 rounded w-full" />
-                                        <div className="h-4 bg-gray-100 rounded w-1/2" />
-                                        <div className="flex items-center gap-2 mt-4 text-gray-400 text-xs">
-                                            <Loader2 className="w-3 h-3 animate-spin" />
-                                            Generating suggestion...
-                                        </div>
-                                    </div>
-                                ) : status === 'error' ? (
-                                    <div className="text-amber-600 text-sm flex items-center gap-2 bg-amber-50 p-3 rounded-lg border border-amber-100">
-                                        <Sparkles className="w-4 h-4" />
-                                        Something went wrong. <button onClick={() => generateSuggestion(customPrompt)} className="underline font-medium">Retry?</button>
-                                    </div>
-                                ) : (
-                                    <div className="text-[15px] leading-relaxed text-gray-800">
-                                        <DiffView
-                                            originalText={originalText}
-                                            newText={suggestion || originalText}
-                                            onReplace={(text) => {
-                                                onAccept(text)
-                                                // Single undo logic handled by Editor
-                                            }}
-                                        />
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Footer */}
-                        <div className="px-4 py-3 bg-gray-50/50 border-t border-gray-100 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <button
-                                    onClick={() => {
-                                        if (suggestion) onAccept(suggestion)
-                                    }}
-                                    disabled={status !== 'success'}
-                                    className="px-4 py-1.5 bg-[#6F4FF0] hover:bg-[#5B3FD9] disabled:opacity-50 disabled:cursor-not-allowed text-white text-[13px] font-semibold rounded-lg transition-all shadow-sm shadow-[#6F4FF0]/20 flex items-center gap-2"
-                                >
-                                    <Check className="w-3.5 h-3.5" />
-                                    Accept
-                                </button>
-                                <button
-                                    onClick={onClose}
-                                    className="px-3 py-1.5 text-gray-500 hover:text-gray-700 text-[13px] font-medium transition-colors hover:bg-gray-100 rounded-lg"
-                                >
-                                    Dismiss
-                                </button>
-                            </div>
-
-                            <div className="flex items-center gap-3">
-                                <button className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors">
-                                    Feedback
-                                </button>
-                                <div className="w-px h-3 bg-gray-200" />
-                                <div className="flex items-center gap-1.5">
-                                    <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#6F4FF0] to-[#35C28B] flex items-center justify-center text-[8px] font-bold text-white shadow-sm">
-                                        T
-                                    </div>
-                                    <span className="text-[11px] font-medium text-gray-400">Trinka AI</span>
+                                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                    <span className="text-[10px] text-gray-400 bg-gray-100 px-1 rounded">↵</span>
                                 </div>
                             </div>
+                        </div>
+
+                        {/* Content Area */}
+                        <div className="p-4 bg-white min-h-[120px]">
+                            {status === 'loading' ? (
+                                <div className="flex flex-col items-center justify-center py-8 text-gray-400 gap-3">
+                                    <Loader2 className="w-6 h-6 animate-spin text-[#6F4FF0]" />
+                                    <span className="text-sm">Generating suggestion...</span>
+                                </div>
+                            ) : status === 'error' ? (
+                                <div className="text-center py-8 text-red-500 text-sm">
+                                    Failed to generate suggestion. Please try again.
+                                </div>
+                            ) : suggestion ? (
+                                <div className="space-y-4">
+                                    <DiffView
+                                        original={originalText}
+                                        modified={suggestion}
+                                    />
+
+                                    <div className="flex items-center justify-between pt-2">
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => onSendToCopilot?.(`Why did you suggest this change: "${suggestion}"?`)}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                            >
+                                                <MessageSquarePlus className="w-3.5 h-3.5" />
+                                                Ask Copilot
+                                            </button>
+                                        </div>
+
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={onClose}
+                                                className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                                            >
+                                                Discard
+                                            </button>
+                                            <button
+                                                onClick={() => onAccept(suggestion)}
+                                                className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium bg-[#6F4FF0] text-white hover:bg-[#5B3FD9] rounded-lg shadow-sm shadow-[#6F4FF0]/20 transition-all"
+                                            >
+                                                <Check className="w-3.5 h-3.5" />
+                                                Accept Change
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : null}
                         </div>
                     </div>
                 </div>
@@ -311,3 +281,5 @@ export const SuggestionPopup: React.FC<SuggestionPopupProps> = ({
         </Portal>
     )
 }
+
+export default SuggestionPopup
