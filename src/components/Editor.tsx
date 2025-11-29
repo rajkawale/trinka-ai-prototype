@@ -15,6 +15,8 @@ import { createRequestId } from '../editor/utils/editorUtils'
 
 export interface EditorRef {
     insertContent: (text: string) => void
+    getEditor?: () => any
+    applyImprovementFix?: (fix: string) => void
 }
 
 interface EditorProps {
@@ -107,12 +109,46 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
         createRequestId
     })
 
+    const handleImprovementFix = useCallback((fix: string) => {
+        if (!editor) return
+
+        const { from, to } = editor.state.selection
+        const selectedText = editor.state.doc.textBetween(from, to, ' ')
+
+        // Map fix actions to editor commands
+        switch (fix) {
+            case 'Review Goals settings':
+                setShowGoalsModal(true)
+                break
+            case 'Simplify complex sentences':
+            case 'Remove filler words':
+            case 'Add transitional phrases':
+            case 'Strengthen weak verbs':
+                // For text-based fixes, trigger AI rewrite
+                if (selectedText.trim()) {
+                    requestRewrite({
+                        id: 'improve',
+                        label: fix,
+                        description: fix,
+                        mode: 'smart',
+                    }, selectedText)
+                } else {
+                    showToast('Please select text to improve')
+                }
+                break
+            default:
+                showToast(`"${fix}" - Feature coming soon!`)
+        }
+    }, [editor, showToast, requestRewrite, setShowGoalsModal])
+
     useImperativeHandle(ref, () => ({
         insertContent: (text: string) => {
             if (editor) {
                 editor.chain().focus().insertContent(text).run()
             }
-        }
+        },
+        getEditor: () => editor,
+        applyImprovementFix: handleImprovementFix
     }))
 
     // Handle selection changes to trigger popup and cancel running operations
@@ -127,7 +163,9 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
 
             // Cancel any running AI generation when selection changes by closing popup
             if (preview) {
-                console.debug('[TRINKA] Selection changed - closing suggestion popup')
+                console.debug('[TRINKA] Selection changed - cancelling suggestion generation')
+                // Show brief message that operation was cancelled
+                showToast('Selection changed - suggestion cancelled')
                 setPreview(null)
                 setSelectionRect(null)
             }
@@ -260,13 +298,25 @@ const Editor = forwardRef((props: EditorProps, ref: ForwardedRef<EditorRef>) => 
                         selectionRect={selectionRect}
                         onClose={() => setPreview(null)}
                         onAccept={(text) => {
-                            if (editor) {
-                                editor.chain().focus()
+                            if (editor && preview.range) {
+                                // Use atomic replacement with proper undo handling
+                                editor
+                                    .chain()
+                                    .focus()
                                     .setTextSelection(preview.range)
                                     .insertContent(text)
                                     .run()
+
+                                // Place caret after inserted content
+                                const newCaretPos = preview.range.from + text.length
+                                setTimeout(() => {
+                                    editor.chain().setTextSelection(newCaretPos).run()
+                                }, 0)
+
                                 setPreview(null)
-                                showToast('Suggestion applied', () => editor.chain().focus().undo().run())
+                                showToast('Suggestion applied', () => {
+                                    editor.chain().focus().undo().run()
+                                })
                             }
                         }}
                         onSendToCopilot={(query) => {

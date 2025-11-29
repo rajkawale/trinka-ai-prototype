@@ -151,7 +151,11 @@ export const WritingQualityPanel: React.FC<WritingQualityPanelProps> = ({
                 factor={selectedFactor}
                 onClose={() => setSelectedFactor(null)}
                 onApplyFix={(fix) => {
-                    onApplyFix?.(fix)
+                    if (onApplyFix) {
+                        onApplyFix(fix)
+                    } else {
+                        console.log('[WritingQualityPanel] Apply fix requested:', fix)
+                    }
                     setSelectedFactor(null)
                 }}
             />

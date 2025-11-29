@@ -10,13 +10,14 @@ Complete implementation plan for Trinka AI Writing Assistant Prototype based on 
 ### Task Group: Writing Quality Panel & Score Fixes
 
 #### 1. Fix Score Panel Positioning & Overlap Issues ⚠️
+- **Status**: ✅ Completed
 - **Issue**: Score panel overlaps with Copilot sidebar
 - **Solution**: Move panel to left side when Copilot is open, or adjust positioning logic
 - **Time**: 2 hours
 - **Branch**: `fix/score-panel-positioning`
 
 #### 2. Make Quality Factors Clickable with Improvement Suggestions
-- **Status**: Partially done - need to integrate with ImprovementSuggestionsModal
+- **Status**: ✅ Completed
 - **Tasks**:
   - Connect quality factor clicks to open ImprovementSuggestionsModal
   - Add action items that can improve the document
@@ -25,6 +26,7 @@ Complete implementation plan for Trinka AI Writing Assistant Prototype based on 
 - **Branch**: `feat/clickable-quality-factors`
 
 #### 3. Update Quality Factors to Match Image Reference
+- **Status**: ✅ Completed
 - **Update factors**: Correctness, Clarity, Tone, Engagement, Structure
 - **Match labels**: "Good", "Crisp", "Needs Polish", "High", "1 headings"
 - **Time**: 1 hour
@@ -36,23 +38,35 @@ Complete implementation plan for Trinka AI Writing Assistant Prototype based on 
 
 ### Task Group: Core Editor Features
 
-#### 4. Token Click Replace Reliability ⏳
+#### 4. Token Click Replace Reliability ✅
+- **Status**: ✅ Completed
 - **Task**: Implement robust mapping utility for char offsets to DOM nodes
 - **Details**:
-  - Create `findNodeForOffset` utility
-  - Implement `ReplaceRangeWithFragment` with atomic undo
-  - Handle token alignment from AI responses
-  - Ensure single undo step and caret placement
+  - ✅ Created `tokenReplace.ts` utility with position mapping functions
+  - ✅ Enhanced token replacement with proper caret placement
+  - ✅ Improved atomic replacement with single undo step
+  - ✅ Better handling of token-level replacements in DiffView
 - **Time**: 6 hours
 - **Branch**: `feat/token-replace-reliability`
 
-#### 5. Selection Change Cancellation Logic
-- **Status**: Partially implemented
+#### 5. Selection Change Cancellation Logic ✅
+- **Status**: ✅ Completed
 - **Enhancements**:
-  - Show "Selection changed" message when cancelled
-  - Better cleanup of running AI requests
+  - ✅ Show "Selection changed - suggestion cancelled" toast message
+  - ✅ Better cleanup of running AI requests when selection changes
+  - ✅ Proper state cleanup on selection change
 - **Time**: 2 hours
 - **Branch**: `feat/selection-cancellation`
+
+#### 6. Apply Fix Functionality ✅
+- **Status**: ✅ Completed
+- **Task**: Wire up improvement suggestions "Apply Fix" buttons to editor actions
+- **Details**:
+  - ✅ Created improvement action handler in Editor
+  - ✅ Connected WritingQualityPanel to Editor via EditorRef
+  - ✅ Mapped fix actions to editor commands (Goals modal, AI rewrites, etc.)
+- **Time**: 3 hours
+- **Branch**: `feat/apply-fix-functionality`
 
 ---
 

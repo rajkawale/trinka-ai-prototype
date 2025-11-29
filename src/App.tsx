@@ -179,6 +179,11 @@ function App() {
           score={writingScore}
           wordCount={wordCount}
           readTime={readTime}
+          onApplyFix={(fix) => {
+            if (editorRef.current?.applyImprovementFix) {
+              editorRef.current.applyImprovementFix(fix)
+            }
+          }}
         />
       </main>
 
