@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback, startTransition } from 'react'
 import Editor, { type EditorRef } from './components/Editor'
 import Copilot from './components/Copilot'
 import { Menu, History, RotateCcw, Eye, X, User as UserIcon, Copy } from 'lucide-react'
@@ -6,14 +6,32 @@ import { cn } from './lib/utils'
 import ScorePill from './components/ScorePill'
 import CopilotFab from './components/CopilotFab'
 import WritingQualityPanel from './components/WritingQualityPanel'
+import ProfileMenu from './components/ProfileMenu'
+import GoalsModal from './components/GoalsModal'
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
+import { usePanelState } from './hooks/usePanelState'
+import { useDebounceClick } from './hooks/useDebounceClick'
 
 function App() {
   const [showVersionHistory, setShowVersionHistory] = useState(false)
   // Mock version history for display
   const [versionHistory] = useState<unknown[]>([])
-  const [showChat, setShowChat] = useState(false)
-  const [showProfileMenu, setShowProfileMenu] = useState(false)
-  const [showQualityPanel, setShowQualityPanel] = useState(false)
+  
+  // Unified panel state management
+  const panelState = usePanelState()
+  const showChat = panelState.isOpen('sidebar')
+  const showProfileMenu = panelState.isOpen('profile')
+  const showQualityPanel = panelState.isOpen('score')
+  const showGoalsModal = panelState.isOpen('goals')
+  
+  // Store panelState functions in refs to avoid recreating callbacks
+  const panelStateRef = useRef(panelState)
+  useEffect(() => {
+    panelStateRef.current = panelState
+  }, [panelState])
+  
+  const scorePillRef = useRef<HTMLButtonElement>(null)
+  const profileButtonRef = useRef<HTMLButtonElement>(null)
 
   const [_showHealthSidebar, setShowHealthSidebar] = useState(false)
   const [_copilotQuery, setCopilotQuery] = useState('')
@@ -33,19 +51,58 @@ function App() {
     editorRef.current?.insertContent(text)
   }
 
-  // Global Keyboard Shortcuts
+  // Debounced click handlers to prevent double-click issues
+  const handleScoreClick = useDebounceClick(() => {
+    if (showQualityPanel) {
+      panelState.closePanel('score')
+    } else {
+      panelState.closeAllPanelsExcept('score')
+      panelState.openPanel('score')
+    }
+  }, 200)
+
+  const handleProfileClick = useDebounceClick(() => {
+    if (showProfileMenu) {
+      panelState.closePanel('profile')
+    } else {
+      panelState.closeAllPanelsExcept('profile')
+      panelState.openPanel('profile')
+    }
+  }, 200)
+
+  const handleCopilotClick = useDebounceClick(() => {
+    if (showChat) {
+      panelState.closePanel('sidebar')
+    } else {
+      panelState.closeAllPanelsExcept('sidebar')
+      panelState.openPanel('sidebar')
+    }
+  }, 200)
+
+  // Global Keyboard Shortcuts using custom hook
+  useKeyboardShortcuts({
+    onOpenCopilot: () => {
+      panelState.closeAllPanelsExcept('sidebar')
+      panelState.openPanel('sidebar')
+    },
+    onRephrase: () => editorRef.current?.triggerRephrase?.(),
+    onGrammarFixes: () => editorRef.current?.triggerGrammarFixes?.(),
+    onClosePopup: () => {
+      panelState.closeAllPanels()
+    },
+    enabled: true
+  })
+
+  // Close all panels when clicking outside (handled by individual components)
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl + Shift + T: Toggle Copilot
-      if (e.ctrlKey && e.shiftKey && (e.key === 't' || e.key === 'T')) {
-        e.preventDefault()
-        setShowChat(prev => !prev)
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        panelState.closeAllPanels()
       }
     }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [panelState])
 
   const handleRestoreVersion = (id: string) => {
     console.log('Restore version:', id)
@@ -62,7 +119,13 @@ function App() {
           <div className="flex items-center gap-3" style={{ gap: '12px' }}>
             {/* Menu & Logo */}
             <div className="flex items-center gap-4">
-              <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600">
+              <button 
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600 focus:outline-none focus:ring-0 focus-visible:outline-none active:outline-none active:ring-0"
+                onMouseDown={(e) => {
+                  // Prevent default focus behavior on mousedown
+                  e.preventDefault()
+                }}
+              >
                 <Menu className="w-5 h-5" />
               </button>
 
@@ -107,53 +170,126 @@ function App() {
 
             <div className="h-6 w-px bg-gray-200" />
 
-            {/* Score Pill - Toggles Writing Quality Panel */}
-            <ScorePill
-              score={writingScore}
-              onClick={() => setShowQualityPanel(prev => !prev)}
-            />
 
             {/* Profile */}
             <div className="relative">
               <button
-                onClick={() => setShowProfileMenu(!showProfileMenu)}
-                className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center hover:ring-2 hover:ring-[#6C2BD9]/20 transition-all"
+                ref={profileButtonRef}
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  // Immediately blur ALL focused elements to prevent any highlighting
+                  const activeElement = document.activeElement as HTMLElement
+                  if (activeElement && activeElement.blur) {
+                    activeElement.blur()
+                  }
+                  // Blur any other potentially focused elements
+                  const allButtons = document.querySelectorAll('button, a, input, textarea, select')
+                  allButtons.forEach(btn => {
+                    if (btn instanceof HTMLElement && document.activeElement === btn) {
+                      btn.blur()
+                    }
+                  })
+                  // Remove focus from body if somehow it got focused
+                  if (document.body) {
+                    document.body.blur()
+                  }
+                  // Open menu after ensuring no elements are focused
+                  handleProfileClick()
+                }}
+                onMouseDown={(e) => {
+                  // Prevent default focus behavior on mousedown - this is critical
+                  e.preventDefault()
+                  e.stopPropagation()
+                }}
+                onFocus={(e) => {
+                  // Immediately blur on focus to prevent visual highlighting
+                  setTimeout(() => {
+                    e.currentTarget.blur()
+                  }, 0)
+                }}
+                className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center hover:bg-gray-300 transition-colors focus:outline-none focus:ring-0 focus-visible:outline-none active:outline-none active:ring-0 focus-within:outline-none"
+                aria-label="Profile menu"
+                tabIndex={0}
               >
                 <UserIcon className="w-4 h-4 text-gray-600" />
               </button>
+              
+              {/* Profile Menu Dropdown */}
+              <ProfileMenu
+                isOpen={showProfileMenu}
+                onClose={() => panelState.closePanel('profile')}
+                anchorElement={profileButtonRef.current}
+                onOpenWritingGoals={() => {
+                  panelState.closePanel('profile')
+                  panelState.openPanel('goals')
+                }}
+              />
             </div>
           </div>
         </header>
 
         {/* Editor Container with Chat */}
         <div className="flex-1 overflow-hidden flex relative">
-          {/* Editor - Adjusts width when chat is open */}
+          {/* Editor - Auto-adjusts width when Copilot is open */}
           <div className={cn(
-            "overflow-y-auto p-8 transition-all duration-300",
-            showChat ? "flex-1" : "w-full flex justify-center"
+            "overflow-y-auto p-8 transition-all duration-300 ease-out",
+            showChat ? "flex-1 min-w-0" : "w-full flex justify-center"
           )}>
-            <div className={cn("transition-all duration-300", showChat ? "w-full" : "w-full max-w-5xl")}>
+            <div className={cn(
+              "transition-all duration-300 ease-out",
+              showChat ? "w-full max-w-none" : "w-full max-w-5xl"
+            )}>
               <Editor
                 ref={editorRef}
-                setShowChat={setShowChat}
+                setShowChat={(show) => {
+                  if (show) {
+                    panelState.closeAllPanelsExcept('sidebar')
+                    panelState.openPanel('sidebar')
+                  } else {
+                    panelState.closePanel('sidebar')
+                  }
+                }}
                 setShowHealthSidebar={setShowHealthSidebar}
                 setCopilotQuery={setCopilotQuery}
-                onMetricsChange={(wc, rt) => {
-                  setWordCount(wc)
-                  setReadTime(rt)
-                }}
+                onMetricsChange={useCallback((wc: number, rt: string) => {
+                  console.log('[App] onMetricsChange called', { wordCount: wc, readTime: rt })
+                  
+                  // Batch both updates together in a single startTransition
+                  // This prevents multiple re-renders and cascading effects
+                  startTransition(() => {
+                    // Use functional updates to check and update in one go
+                    setWordCount(prev => prev === wc ? prev : wc)
+                    setReadTime(prev => prev === rt ? prev : rt)
+                  })
+                }, [])}
+                onSuggestionPopupChange={useCallback((isOpen: boolean) => {
+                  console.log('[App] onSuggestionPopupChange called', { isOpen })
+                  const currentPanelState = panelStateRef.current
+                  if (isOpen) {
+                    // Close other panels when suggestion popup opens
+                    currentPanelState.closeAllPanelsExcept('suggestion')
+                    currentPanelState.openPanel('suggestion')
+                  } else {
+                    currentPanelState.closePanel('suggestion')
+                  }
+                }, [])}
               />
             </div>
           </div>
 
-          {/* Chat Window - Right Side Below Header */}
+          {/* Chat Window - Right Side - Side by side with editor (no overlay) */}
           {!isMobile && (
             <aside className={cn(
-              "border-l border-gray-200 bg-white flex-shrink-0 flex flex-col transition-all duration-300 ease-in-out overflow-hidden",
-              showChat ? "w-[400px] translate-x-0" : "w-0 translate-x-full opacity-0"
+              "flex-shrink-0 border-l border-gray-200 bg-white flex flex-col overflow-hidden transition-all duration-300 ease-out",
+              showChat 
+                ? "w-[400px] opacity-100" 
+                : "w-0 opacity-0 pointer-events-none overflow-hidden"
             )}>
               <Copilot
-                onClose={() => setShowChat(false)}
+                isCompact={false}
+                onToggleCompact={() => panelState.closePanel('sidebar')}
+                onClose={() => panelState.closePanel('sidebar')}
                 docId="current-doc"
                 defaultShowRecommendations={true}
                 onInsertText={handleInsertText}
@@ -167,24 +303,60 @@ function App() {
           <div className="fixed bottom-8 right-8 z-50 animate-in fade-in zoom-in duration-300">
             <CopilotFab
               isOpen={showChat}
-              onClick={() => setShowChat(true)}
+              onClick={handleCopilotClick}
             />
           </div>
         )}
 
-        {/* Writing Quality Panel */}
+        {/* Writing Score Button - Left Side Bottom Positioned */}
+        <div className={cn(
+          "fixed z-40 transition-all duration-300",
+          "left-4 bottom-6" // Bottom-left position like image 2
+        )}>
+          <ScorePill
+            ref={scorePillRef}
+            score={writingScore}
+            isOpen={showQualityPanel}
+            onClick={handleScoreClick}
+          />
+        </div>
+
+        {/* Writing Quality Panel - Opens floating from score button on left */}
         <WritingQualityPanel
           isOpen={showQualityPanel}
-          onClose={() => setShowQualityPanel(false)}
+          onClose={() => panelState.closePanel('score')}
           score={writingScore}
           wordCount={wordCount}
           readTime={readTime}
+          position="floating"
+          anchorElement={scorePillRef.current}
+          isScoreSubPopupOpen={panelState.isScoreSubPopupOpen}
+          onOpenSubPopup={() => panelState.openScoreSubPopup()}
+          onCloseSubPopup={() => panelState.closeScoreSubPopup()}
           onApplyFix={(fix) => {
             if (editorRef.current?.applyImprovementFix) {
               editorRef.current.applyImprovementFix(fix)
             }
           }}
         />
+
+        {/* Goals Modal */}
+        {showGoalsModal && (
+          <GoalsModal
+            isOpen={showGoalsModal}
+            onClose={() => panelState.closePanel('goals')}
+            initialGoals={{
+              audience: 'expert',
+              formality: 'formal',
+              domain: 'academic',
+              intent: 'inform'
+            }}
+            onSave={(goals) => {
+              console.log('Goals saved:', goals)
+              panelState.closePanel('goals')
+            }}
+          />
+        )}
       </main>
 
       {/* Mobile: Copilot as Bottom Sheet */}
